@@ -1,7 +1,3 @@
-# Logos scaffold — LEZ checkout and wallet layout. Checked in so `make setup` works on a fresh clone
-# without `logos-scaffold init`. Paths under `.scaffold/` are gitignored (wallet, circuits, lez-cache).
-# Override `[scaffold] cache_root` if you prefer a machine-wide cache (see logos-scaffold README).
-
 [scaffold]
 version = "0.1.1"
 cache_root = ".scaffold/lez-cache"
