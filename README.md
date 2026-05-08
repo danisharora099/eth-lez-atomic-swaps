@@ -237,7 +237,10 @@ The UI is a [logos-basecamp](https://github.com/logos-co/logos-basecamp) app, bu
 - **`swap-module/`** — `type: "core"` universal C++ module wrapping `swap-ffi`. Built with `mkLogosModule` + `logos-cpp-generator`. The 13 public methods on `SwapImpl` (the pure-C++ impl class) are auto-exposed as a typed `Swap` client class for other modules / UIs to call.
 - **`swap-ui/`** — `type: "ui_qml"` Basecamp app with a process-isolated C++ backend (Qt Remote Objects, `.rep` interface) and a QML view. Calls into `swap` via the generated `Swap` client.
 
-Both flakes are standalone — each builds inside its own subdirectory.
+Both flakes are standalone — each builds inside its own subdirectory. Their
+`flake.lock` files are intentionally kept local/ignored in this repo so the PR
+diff stays focused on source changes; regenerate them locally with `nix build`
+when needed.
 
 ### First-time UI build
 

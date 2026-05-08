@@ -29,6 +29,8 @@ swap-module/generated_code/
 swap-ui/result
 swap-ui/result-*
 swap-ui/.direnv
+swap-module/flake.lock
+swap-ui/flake.lock
 
 # Logos dev-boost / agent context generated locally; not part of source
 .agents/
