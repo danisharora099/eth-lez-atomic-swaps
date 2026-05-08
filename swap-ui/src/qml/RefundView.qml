@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "."
 
 ScrollView {
     id: refundRoot
@@ -125,7 +126,7 @@ ScrollView {
                         font.bold: true
                     }
                     Text {
-                        text: "Reclaim LEZ locked in escrow after the LEZ timelock expires (default 10m). Timelock is checked off-chain."
+                        text: "Reclaim LEZ locked in escrow after the LEZ timelock expires (default 5m). Timelock is checked off-chain."
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
@@ -175,8 +176,9 @@ ScrollView {
                     }
 
                     Button {
-                        text: swapBackend.makerRunning ? "Running..." : "Refund LEZ"
-                        enabled: !swapBackend.makerRunning && refundRoot.isValidHex(lezHashlockInput.text, 32)
+                        text: swapBackend.refundsLoading ? "Running..." : "Refund LEZ"
+                        enabled: !swapBackend.running && !swapBackend.refundsLoading
+                                 && refundRoot.isValidHex(lezHashlockInput.text, 32)
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
                         font.pixelSize: Theme.fontNormal
@@ -224,7 +226,7 @@ ScrollView {
                         font.bold: true
                     }
                     Text {
-                        text: "Reclaim ETH locked in the HTLC contract after the ETH timelock expires (default 5m). Enforced on-chain."
+                        text: "Reclaim ETH locked in the HTLC contract after the ETH timelock expires (default 10m). Enforced on-chain."
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
@@ -274,8 +276,9 @@ ScrollView {
                     }
 
                     Button {
-                        text: swapBackend.takerRunning ? "Running..." : "Refund ETH"
-                        enabled: !swapBackend.takerRunning && refundRoot.isValidHex(ethSwapIdInput.text, 32)
+                        text: swapBackend.refundsLoading ? "Running..." : "Refund ETH"
+                        enabled: !swapBackend.running && !swapBackend.refundsLoading
+                                 && refundRoot.isValidHex(ethSwapIdInput.text, 32)
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
                         font.pixelSize: Theme.fontNormal

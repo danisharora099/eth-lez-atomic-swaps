@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "."
 
 Item {
     id: root
@@ -151,7 +152,8 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "Refresh"
+                    text: swapBackend.balancesLoading ? "Refreshing" : "Refresh"
+                    enabled: !swapBackend.balancesLoading && !swapBackend.running
                     Layout.preferredHeight: 28
                     font.pixelSize: 11
                     background: Rectangle {
@@ -162,7 +164,7 @@ Item {
                     }
                     contentItem: Text {
                         text: parent.text
-                        color: Theme.textSecondary
+                        color: parent.enabled ? Theme.textSecondary : Theme.textMuted
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         font: parent.font
@@ -237,18 +239,30 @@ Item {
                             parts.push("Maker: " + hs(swapBackend.makerCurrentStep || "..."))
                         if (swapBackend.takerRunning)
                             parts.push("Taker: " + hs(swapBackend.takerCurrentStep || "..."))
-                        return parts.length > 0 ? parts.join(" | ") : "Idle"
+                        if (parts.length > 0)
+                            return parts.join(" | ")
+                        if (!swapBackend.ready)
+                            return "Connecting to backend..."
+                        return swapBackend.status || "Idle"
                     }
-                    color: swapBackend.running ? Theme.warning : Theme.textMuted
+                    color: swapBackend.errorMessage !== "" ? Theme.error : swapBackend.running ? Theme.warning : Theme.textMuted
                     font.pixelSize: Theme.fontSmall
                 }
                 Item { Layout.fillWidth: true }
                 Text {
                     visible: swapBackend.wakuBootstrapMultiaddr !== ""
-                    text: swapBackend.messagingConnected
-                          ? swapBackend.messagingPeerCount + " peer" + (swapBackend.messagingPeerCount !== 1 ? "s" : "")
-                          : "Connecting..."
-                    color: swapBackend.messagingConnected ? Theme.success : Theme.warning
+                    text: {
+                        if (swapBackend.messagingConnected)
+                            return swapBackend.messagingPeerCount + " peer" + (swapBackend.messagingPeerCount !== 1 ? "s" : "")
+                        if (swapBackend.messagingLoading)
+                            return "Connecting..."
+                        if (swapBackend.makerRunning || swapBackend.takerRunning || swapBackend.autoAcceptRunning)
+                            return "Swap in progress"
+                        return "Disconnected"
+                    }
+                    color: (swapBackend.messagingConnected || swapBackend.makerRunning || swapBackend.takerRunning || swapBackend.autoAcceptRunning)
+                           ? Theme.success
+                           : Theme.warning
                     font.pixelSize: Theme.fontSmall
                 }
                 Text {

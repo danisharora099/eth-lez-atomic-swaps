@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "."
 
 ScrollView {
     id: configRoot
@@ -9,6 +10,17 @@ ScrollView {
     background: Rectangle { color: Theme.background }
 
     property bool anyRunning: swapBackend.makerRunning || swapBackend.takerRunning || swapBackend.autoAcceptRunning
+    property bool anyLoading: swapBackend.balancesLoading || swapBackend.messagingLoading
+                              || swapBackend.offersLoading || swapBackend.publishingLoading
+                              || swapBackend.refundsLoading
+    property var validationErrors: {
+        try { return JSON.parse(swapBackend.validationErrorsJson || "{}") }
+        catch (e) { return {} }
+    }
+
+    function errorFor(key) {
+        return validationErrors && validationErrors[key] ? validationErrors[key] : ""
+    }
 
     Flickable {
         contentHeight: col.implicitHeight + Theme.spacingXLarge * 2
@@ -31,9 +43,57 @@ ScrollView {
                 font.bold: true
             }
             Text {
-                text: "Pre-filled from .env. Edit values below before starting a swap."
+                text: "Edit values below before starting a swap."
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontSmall
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingNormal
+
+                Button {
+                    text: "Load Maker Env"
+                    enabled: !configRoot.anyRunning && !configRoot.anyLoading && swapBackend.ready
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled ? Theme.textPrimary : Theme.textMuted
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.fontSmall
+                        font.bold: true
+                    }
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: parent.enabled && parent.hovered ? Theme.surfaceLight : Theme.surface
+                        border.color: parent.enabled ? Theme.accent : Theme.border
+                        border.width: 1
+                    }
+                    onClicked: swapBackend.loadEnvFile(".env", "maker")
+                }
+                Button {
+                    text: "Load Taker Env"
+                    enabled: !configRoot.anyRunning && !configRoot.anyLoading && swapBackend.ready
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled ? Theme.textPrimary : Theme.textMuted
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.fontSmall
+                        font.bold: true
+                    }
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: parent.enabled && parent.hovered ? Theme.surfaceLight : Theme.surface
+                        border.color: parent.enabled ? Theme.accent : Theme.border
+                        border.width: 1
+                    }
+                    onClicked: swapBackend.loadEnvFile(".env.taker", "taker")
+                }
             }
 
             // --- Ethereum ---
@@ -42,31 +102,35 @@ ScrollView {
             ConfigField {
                 label: "RPC URL"
                 text: swapBackend.ethRpcUrl
-                onTextEdited: (val) => swapBackend.ethRpcUrl = val
+                onValueEdited: (val) => swapBackend.setConfigValue("eth_rpc_url", val)
                 placeholderText: "wss://..."
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("eth_rpc_url")
             }
             ConfigField {
                 label: "Private Key"
                 text: swapBackend.ethPrivateKey
-                onTextEdited: (val) => swapBackend.ethPrivateKey = val
+                onValueEdited: (val) => swapBackend.setConfigValue("eth_private_key", val)
                 echoMode: TextInput.Password
                 placeholderText: "0x..."
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("eth_private_key")
             }
             ConfigField {
                 label: "HTLC Contract Address"
                 text: swapBackend.ethHtlcAddress
-                onTextEdited: (val) => swapBackend.ethHtlcAddress = val
+                onValueEdited: (val) => swapBackend.setConfigValue("eth_htlc_address", val)
                 placeholderText: "0x..."
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("eth_htlc_address")
             }
             ConfigField {
                 label: "Recipient Address"
                 text: swapBackend.ethRecipientAddress
-                onTextEdited: (val) => swapBackend.ethRecipientAddress = val
+                onValueEdited: (val) => swapBackend.setConfigValue("eth_recipient_address", val)
                 placeholderText: "0x..."
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("eth_recipient_address")
             }
 
             // --- LEZ ---
@@ -75,30 +139,50 @@ ScrollView {
             ConfigField {
                 label: "Sequencer URL"
                 text: swapBackend.lezSequencerUrl
-                onTextEdited: (val) => swapBackend.lezSequencerUrl = val
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_sequencer_url", val)
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_sequencer_url")
             }
             ConfigField {
                 label: "Signing Key"
                 text: swapBackend.lezSigningKey
-                onTextEdited: (val) => swapBackend.lezSigningKey = val
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_signing_key", val)
                 echoMode: TextInput.Password
                 placeholderText: "32-byte hex"
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_signing_key")
+            }
+            ConfigField {
+                label: "Wallet Home"
+                text: swapBackend.lezWalletHome
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_wallet_home", val)
+                placeholderText: ".scaffold/wallet"
+                fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_wallet_home")
+            }
+            ConfigField {
+                label: "Wallet Account ID"
+                text: swapBackend.lezAccountId
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_account_id", val)
+                placeholderText: "base58"
+                fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_account_id")
             }
             ConfigField {
                 label: "HTLC Program ID"
                 text: swapBackend.lezHtlcProgramId
-                onTextEdited: (val) => swapBackend.lezHtlcProgramId = val
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_htlc_program_id", val)
                 placeholderText: "32-byte hex"
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_htlc_program_id")
             }
             ConfigField {
                 label: "Taker Account ID"
                 text: swapBackend.lezTakerAccountId
-                onTextEdited: (val) => swapBackend.lezTakerAccountId = val
+                onValueEdited: (val) => swapBackend.setConfigValue("lez_taker_account_id", val)
                 placeholderText: "base58"
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("lez_taker_account_id")
             }
 
             // --- Swap Parameters ---
@@ -112,15 +196,17 @@ ScrollView {
                     Layout.fillWidth: true
                     label: "LEZ Amount"
                     text: swapBackend.lezAmount
-                    onTextEdited: (val) => swapBackend.lezAmount = val
+                    onValueEdited: (val) => swapBackend.setConfigValue("lez_amount", val)
                     fieldEnabled: !configRoot.anyRunning
+                    errorText: configRoot.errorFor("lez_amount")
                 }
                 ConfigField {
                     Layout.fillWidth: true
                     label: "ETH Amount"
                     text: swapBackend.ethAmount
-                    onTextEdited: (val) => swapBackend.ethAmount = val
+                    onValueEdited: (val) => swapBackend.setConfigValue("eth_amount", val)
                     fieldEnabled: !configRoot.anyRunning
+                    errorText: configRoot.errorFor("eth_amount")
                 }
             }
 
@@ -132,15 +218,17 @@ ScrollView {
                     Layout.fillWidth: true
                     label: "LEZ Timelock (min)"
                     text: swapBackend.lezTimelockMinutes
-                    onTextEdited: (val) => swapBackend.lezTimelockMinutes = val
+                    onValueEdited: (val) => swapBackend.setConfigValue("lez_timelock_minutes", val)
                     fieldEnabled: !configRoot.anyRunning
+                    errorText: configRoot.errorFor("lez_timelock_minutes")
                 }
                 ConfigField {
                     Layout.fillWidth: true
                     label: "ETH Timelock (min)"
                     text: swapBackend.ethTimelockMinutes
-                    onTextEdited: (val) => swapBackend.ethTimelockMinutes = val
+                    onValueEdited: (val) => swapBackend.setConfigValue("eth_timelock_minutes", val)
                     fieldEnabled: !configRoot.anyRunning
+                    errorText: configRoot.errorFor("eth_timelock_minutes")
                 }
             }
 
@@ -148,8 +236,9 @@ ScrollView {
                 Layout.fillWidth: true
                 label: "Poll Interval (ms)"
                 text: swapBackend.pollIntervalMs
-                onTextEdited: (val) => swapBackend.pollIntervalMs = val
+                onValueEdited: (val) => swapBackend.setConfigValue("poll_interval_ms", val)
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("poll_interval_ms")
             }
 
             // --- Messaging ---
@@ -158,9 +247,10 @@ ScrollView {
             ConfigField {
                 label: "Bootstrap Multiaddr"
                 text: swapBackend.wakuBootstrapMultiaddr
-                onTextEdited: (val) => swapBackend.wakuBootstrapMultiaddr = val
+                onValueEdited: (val) => swapBackend.setConfigValue("waku_bootstrap_multiaddr", val)
                 placeholderText: "/ip4/127.0.0.1/tcp/60010/p2p/..."
                 fieldEnabled: !configRoot.anyRunning
+                errorText: configRoot.errorFor("waku_bootstrap_multiaddr")
             }
         }
     }
@@ -189,12 +279,15 @@ ScrollView {
     }
 
     component ConfigField: ColumnLayout {
+        id: field
+
         property alias label: labelText.text
         property alias text: input.text
         property alias echoMode: input.echoMode
         property alias placeholderText: input.placeholderText
         property bool fieldEnabled: true
-        signal textEdited(string val)
+        property string errorText: ""
+        signal valueEdited(string val)
 
         spacing: 4
 
@@ -217,12 +310,20 @@ ScrollView {
             selectByMouse: true
             background: Rectangle {
                 color: Theme.inputBackground
-                border.color: input.activeFocus ? Theme.accent : Theme.border
+                border.color: field.errorText !== "" ? Theme.error : (input.activeFocus ? Theme.accent : Theme.border)
                 border.width: 1
                 radius: Theme.radiusSmall
                 opacity: input.enabled ? 1.0 : 0.5
             }
-            onTextChanged: () => textEdited(input.text)
+            onTextChanged: field.valueEdited(input.text)
+        }
+        Text {
+            visible: field.errorText !== ""
+            text: field.errorText
+            color: Theme.error
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
         }
     }
 }

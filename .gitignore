@@ -20,3 +20,28 @@ workstreams/
 insights.md
 cold-clone-checklist.md
 demo-script.md
+
+# Logos module-builder Nix outputs (per-flake)
+swap-module/result
+swap-module/result-*
+swap-module/.direnv
+swap-module/generated_code/
+swap-ui/result
+swap-ui/result-*
+swap-ui/.direnv
+swap-module/flake.lock
+swap-ui/flake.lock
+
+# Logos dev-boost / agent context generated locally; not part of source
+.agents/
+.mcp.json
+.sisyphus/
+AGENTS.md
+
+# Editor-generated agent rules
+.cursor/rules/logos.mdc
+
+# Nix result symlinks
+result
+result-*
+result-basecamp

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "."
 
 ScrollView {
     id: takerRoot
@@ -10,16 +11,21 @@ ScrollView {
 
     property var takerSteps: [
         { name: "PreimageGenerated", label: "Generate Preimage" },
-        { name: "EthLocked",         label: "Lock ETH" },
-        { name: "LezLockDetected",   label: "Wait for LEZ Lock" },
-        { name: "LezClaimed",        label: "Claim LEZ" },
+        { name: "LockingEth",        label: "Lock ETH" },
+        { name: "EthLocked",         label: "ETH Locked" },
+        { name: "WaitingForLezLock", label: "Wait for LEZ Lock" },
+        { name: "LezLockDetected",   label: "LEZ Lock Detected" },
+        { name: "VerifyingLezEscrow", label: "Verify LEZ Escrow" },
+        { name: "LezEscrowVerified", label: "LEZ Escrow Verified" },
+        { name: "ClaimingLez",       label: "Claim LEZ" },
+        { name: "LezClaimed",        label: "LEZ Claimed" },
     ]
 
     property var completedSteps: {
         var done = []
         var steps = swapBackend.takerProgressSteps
         for (var i = 0; i < steps.length; i++) {
-            if (done.indexOf(steps[i]) < 0)
+            if (steps[i] !== swapBackend.takerCurrentStep && done.indexOf(steps[i]) < 0)
                 done.push(steps[i])
         }
         return done
@@ -135,8 +141,11 @@ ScrollView {
             // --- Discover Offers ---
             Button {
                 visible: !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: fetching ? "Fetching..." : "Discover Offers"
-                enabled: !fetching && !swapBackend.takerRunning && swapBackend.messagingConnected
+                text: (fetching || swapBackend.offersLoading || swapBackend.messagingLoading)
+                      ? "Fetching..."
+                      : (swapBackend.messagingConnected ? "Discover Offers" : "Connect & Discover Offers")
+                enabled: !fetching && !swapBackend.offersLoading && !swapBackend.messagingLoading
+                         && !swapBackend.running && swapBackend.wakuBootstrapMultiaddr !== ""
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 font.pixelSize: Theme.fontNormal
@@ -164,6 +173,15 @@ ScrollView {
                 }
             }
 
+            Text {
+                visible: !swapBackend.takerRunning && !takerRoot.swapCompleted
+                text: "Offers are advertisements. A swap can complete only if the maker is live and responding."
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+
             // Offer list
             Repeater {
                 model: !swapBackend.takerRunning && !takerRoot.swapCompleted ? discoveredOffers : []
@@ -181,7 +199,7 @@ ScrollView {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        enabled: !swapBackend.takerRunning && takerRoot.pendingOffer === null
+                        enabled: !swapBackend.running && takerRoot.pendingOffer === null
                         onClicked: {
                             takerRoot.pendingOffer = modelData
                         }
@@ -251,7 +269,7 @@ ScrollView {
             // Connecting hint
             Text {
                 visible: !swapBackend.messagingConnected && swapBackend.wakuBootstrapMultiaddr !== "" && !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: "Connecting to messaging network..."
+                text: "Messaging is not connected yet."
                 color: Theme.warning
                 font.pixelSize: Theme.fontSmall
             }
@@ -291,6 +309,13 @@ ScrollView {
                         font.bold: true
                     }
                     Text {
+                        text: "Starting will lock ETH and wait for the maker listener to lock LEZ."
+                        color: Theme.warning
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                    Text {
                         text: takerRoot.pendingOffer
                               ? "from " + takerRoot.pendingOffer.maker_eth_address.substring(0, 6) + "..." + takerRoot.pendingOffer.maker_eth_address.substring(takerRoot.pendingOffer.maker_eth_address.length - 4)
                               : ""
@@ -304,18 +329,21 @@ ScrollView {
 
                         Button {
                             text: "Buy"
+                            enabled: !swapBackend.running
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
                             font.pixelSize: Theme.fontNormal
                             font.bold: true
 
                             background: Rectangle {
-                                color: parent.hovered ? Theme.accentHover : Theme.accent
+                                color: parent.enabled
+                                       ? (parent.hovered ? Theme.accentHover : Theme.accent)
+                                       : Theme.surfaceLight
                                 radius: Theme.radiusNormal
                             }
                             contentItem: Text {
                                 text: parent.text
-                                color: "#ffffff"
+                                color: parent.enabled ? "#ffffff" : Theme.textMuted
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 font: parent.font
@@ -323,20 +351,15 @@ ScrollView {
 
                             onClicked: {
                                 var offer = takerRoot.pendingOffer
-                                swapBackend.ethRecipientAddress = offer.maker_eth_address
-                                swapBackend.lezAmount = String(offer.lez_amount)
-                                swapBackend.ethAmount = takerRoot.weiToEthValue(offer.eth_amount)
-                                swapBackend.ethHtlcAddress = offer.eth_htlc_address
-                                swapBackend.lezHtlcProgramId = offer.lez_htlc_program_id
-                                swapBackend.lezTakerAccountId = offer.maker_lez_account
                                 takerRoot.acceptedOffer = offer
                                 takerRoot.pendingOffer = null
-                                swapBackend.startTaker("")
+                                swapBackend.acceptOfferAndStartTaker(offer)
                             }
                         }
 
                         Button {
                             text: "Cancel"
+                            enabled: !swapBackend.running
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
                             font.pixelSize: Theme.fontNormal
