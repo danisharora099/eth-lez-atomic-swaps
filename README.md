@@ -272,6 +272,12 @@ cd ../swap-ui && nix build .#lgx
 lgpm install ../swap-module/result/*.lgx ./result/*.lgx
 ```
 
+If `lgpm` is not on your `PATH`, install the CLI first:
+
+```bash
+nix profile add github:logos-co/logos-package-manager#cli
+```
+
 Then launch Basecamp from the repo root so `.env`, `.env.taker`, and relative
 paths like `.scaffold/wallet` resolve during local testing. The swap UI appears
 as the `swap_ui` app and auto-loads its `swap` core dependency.
