@@ -1,6 +1,6 @@
 .PHONY: contracts demo infra \
        setup localnet-start localnet-stop test circuits \
-       swap-vendor-ffi swap-module-build swap-ui-build swap-ui-run
+       swap-vendor-ffi swap-module-build swap-ui-build swap-lgx-build swap-ui-run
 
 UNAME := $(shell uname -s)
 UNAME_M := $(shell uname -m)
@@ -91,30 +91,36 @@ infra: circuits contracts localnet-start
 #
 # Both flakes are standalone. Each builds inside its own subdirectory.
 
-# Vendor the swap-ffi cdylib into swap-module/lib/ so Nix can find it during
-# `nix build`. The header is already tracked in git (small, stable). The dylib
-# is gitignored by default; force-add with `git add -f` to pin a build.
+# Build the swap-ffi cdylib into swap-module/lib/ for ad hoc non-Nix testing.
+# Nix builds compile swap-ffi from tracked Rust source via swap-module/flake.nix,
+# so platform libraries in swap-module/lib/ stay ignored and untracked.
 swap-vendor-ffi: circuits
 	cargo build --release -p swap-ffi
 ifeq ($(UNAME),Darwin)
 	@cp target/release/libswap_ffi.dylib swap-module/lib/libswap_ffi.dylib
 	@echo "swap-module/lib/libswap_ffi.dylib refreshed"
-	@echo "Reminder: 'git add -f swap-module/lib/libswap_ffi.dylib' before 'nix build' for Nix to see it."
+	@echo "Reminder: keep platform FFI binaries out of git; Nix builds compile swap-ffi from source."
 else
 	@cp target/release/libswap_ffi.so swap-module/lib/libswap_ffi.so
 	@echo "swap-module/lib/libswap_ffi.so refreshed"
-	@echo "Reminder: 'git add -f swap-module/lib/libswap_ffi.so' before 'nix build' for Nix to see it."
+	@echo "Reminder: keep platform FFI binaries out of git; Nix builds compile swap-ffi from source."
 endif
 
-# Build the swap core module via Nix. Requires `swap-vendor-ffi` to have been
-# run and the resulting binary to be git-tracked (Nix only sees tracked files).
-swap-module-build: swap-vendor-ffi
+# Build the swap core module via Nix. The flake builds and stages swap-ffi from
+# tracked Rust source; no checked-in libswap_ffi.dylib/.so is required.
+swap-module-build:
 	cd swap-module && nix build -L
 
 # Build the swap UI via Nix. Pulls swap-module via path:../swap-module input.
 swap-ui-build:
 	cd swap-ui && nix build -L
 
-# Launch the UI in logos-standalone-app (auto-loads the swap module dependency).
+# Build LGX packages for installing the core module and UI app into Basecamp.
+swap-lgx-build:
+	cd swap-module && nix build .#lgx -L
+	cd swap-ui && nix build .#lgx -L
+
+# Launch the UI in logos-standalone-app for smoke testing only.
+# Manual testing should use Basecamp with the LGX packages from swap-lgx-build.
 swap-ui-run:
 	cd swap-ui && nix run .

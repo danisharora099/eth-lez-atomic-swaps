@@ -255,21 +255,30 @@ when needed.
 ### First-time UI build
 
 ```bash
-make swap-vendor-ffi                                  # build libswap_ffi and copy into swap-module/lib/
-make swap-module-build                                 # nix build the core swap module
+make swap-module-build                                 # nix build the core swap module and source-built swap-ffi
 make swap-ui-build                                     # nix build the UI (depends on swap-module via path:)
 ```
 
 `swap-module/lib/libswap_ffi.{dylib,so}` is a local platform artifact and is
-ignored by default. Until `swap-ffi` is built natively inside the Nix flake,
-local Nix builds may need that artifact force-added in a throwaway working tree
-so the flake source can see it; do not include platform binaries in normal PRs.
+ignored by default. Do not force-add it for Nix builds; `swap-module/flake.nix`
+builds `swap-ffi` from tracked Rust source and passes the resulting `$out/lib`
+and `$out/include` to `mkLogosModule` as `externalLibInputs.swap_ffi`.
 
-### Run the UI
+### Run in Basecamp
 
 ```bash
-make swap-ui-run     # launches in logos-standalone-app with the QML inspector on :3768
+cd swap-module && nix build .#lgx
+cd ../swap-ui && nix build .#lgx
+lgpm install ../swap-module/result/*.lgx ./result/*.lgx
 ```
+
+Then launch Basecamp from the repo root so `.env`, `.env.taker`, and relative
+paths like `.scaffold/wallet` resolve during local testing. The swap UI appears
+as the `swap_ui` app and auto-loads its `swap` core dependency.
+
+For quick UI smoke testing outside Basecamp, `make swap-ui-run` still launches
+the dependency-bundling `logos-standalone-app` runner with the QML inspector on
+`:3768`; this is not the default manual test path.
 
 ### Smoke-test the UI
 
@@ -287,12 +296,12 @@ LOGOS_QT_MCP=$(realpath result-mcp) QT_QPA_PLATFORM=offscreen \
 
 In sandboxed agent environments, run the smoke command unsandboxed so Logos can create its local IPC sockets.
 
-To install into Basecamp:
+Equivalent explicit Basecamp packaging commands:
 
 ```bash
 cd swap-module && nix build .#lgx
 cd ../swap-ui   && nix build .#lgx
-lgpm install ./result/*.lgx                           # for both
+lgpm install ../swap-module/result/*.lgx ./result/*.lgx
 ```
 
 Then launch Basecamp; the swap UI shows as a tab and auto-loads its `swap` core dependency.
@@ -327,10 +336,10 @@ The headless CLI flow (`swap-cli`, `make demo`, `make infra`, …) is independen
 | `make contracts` | Run `forge build` inside `contracts/` |
 | `make localnet-start` | Start the LEZ localnet |
 | `make localnet-stop` | Stop the LEZ localnet |
-| `make swap-vendor-ffi` | Build `swap-ffi` and copy `libswap_ffi.{dylib,so}` into `swap-module/lib/` |
+| `make swap-vendor-ffi` | Build `swap-ffi` and copy `libswap_ffi.{dylib,so}` into `swap-module/lib/` for ad hoc non-Nix testing |
 | `make swap-module-build` | Build `swap-module/` via Nix (requires Nix flakes) |
 | `make swap-ui-build` | Build `swap-ui/` via Nix |
-| `make swap-ui-run` | Launch `swap-ui` in `logos-standalone-app` |
+| `make swap-ui-run` | Launch `swap-ui` in `logos-standalone-app` for smoke testing only |
 
 ## Architecture
 
