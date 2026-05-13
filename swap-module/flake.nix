@@ -4,6 +4,7 @@
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
     nix-bundle-lgx.url = "github:logos-co/nix-bundle-lgx";
+    delivery_module.url = "github:logos-co/logos-delivery-module/v0.1.1";
     nixpkgs.follows = "logos-module-builder/nixpkgs";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -163,6 +164,19 @@
           --impl-header swap_impl.h \
           --metadata metadata.json \
           --output-dir ./generated_code
+        substituteInPlace ./generated_code/swap_qt_glue.h \
+          --replace '#include "swap_impl.h"' '#include "swap_impl.h"
+#include "swap_delivery_adapter.h"' \
+          --replace 'private:
+    SwapImpl m_impl;' 'protected:
+    void onInit(LogosAPI* api) override {
+        swapDeliverySetRuntimeLogosAPI(static_cast<void*>(api));
+    }
+
+private:
+    SwapImpl m_impl;'
+        grep -q 'swap_delivery_adapter.h' ./generated_code/swap_qt_glue.h
+        grep -q 'swapDeliverySetRuntimeLogosAPI' ./generated_code/swap_qt_glue.h
       '';
     };
 }

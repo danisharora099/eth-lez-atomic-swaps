@@ -7,7 +7,7 @@
   "interface": "universal",
   "category": "defi",
   "main": "swap_plugin",
-  "dependencies": [],
+  "dependencies": ["delivery_module"],
   "include": [],
   "capabilities": [],
   "nix": {
