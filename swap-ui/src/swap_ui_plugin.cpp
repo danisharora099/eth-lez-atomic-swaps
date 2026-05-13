@@ -477,13 +477,6 @@ bool SwapUiPlugin::validateConfigForAction(const QString& action,
     bool ok = validateConfig();
     auto errors = parseObject(validationErrorsJson());
 
-    if ((action == QStringLiteral("messaging") || action == QStringLiteral("publish")
-         || action == QStringLiteral("offers") || action == QStringLiteral("auto_accept"))
-        && wakuBootstrapMultiaddr().trimmed().isEmpty()) {
-        addValidationError(errors, QStringLiteral("waku_bootstrap_multiaddr"),
-                           QStringLiteral("Required for messaging"));
-        ok = false;
-    }
     if (!hexKey.isEmpty()) {
         if (action.startsWith(QStringLiteral("refund")) && hexValue.trimmed().isEmpty()) {
             addValidationError(errors, hexKey, QStringLiteral("Required"));
@@ -940,12 +933,6 @@ void SwapUiPlugin::ensureMessagingReady(std::function<void()> continuation)
         }
         return;
     }
-    if (wakuBootstrapMultiaddr().isEmpty()) {
-        validateConfigForAction(QStringLiteral("messaging"));
-        setErrorMessage(QStringLiteral("Messaging bootstrap multiaddr is required"));
-        setStatus(errorMessage());
-        return;
-    }
     if (m_messagingInitInFlight) {
         setStatus(QStringLiteral("Messaging is connecting..."));
         return;
@@ -979,7 +966,7 @@ void SwapUiPlugin::initMessaging()
 
 void SwapUiPlugin::pollMessagingStatus()
 {
-    if (!m_swap || (wakuBootstrapMultiaddr().isEmpty() && !messagingConnected())) {
+    if (!m_swap) {
         return;
     }
     m_swap->messagingStatusAsync([this](QString result) {
