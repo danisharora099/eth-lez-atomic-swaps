@@ -6,6 +6,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -17,9 +18,37 @@
 #include <QVariant>
 #include <QDebug>
 
+#include <cstdio>
+
 namespace {
 
 constexpr const char* kSwapModuleName = "swap";
+
+// Out-of-band trace logger. Basecamp installs a Qt message handler that
+// swallows qInfo/qWarning/qCritical, so plugin-side diagnostics never reach
+// basecamp.log. We bypass Qt entirely by appending to a per-instance file
+// under XDG_RUNTIME_DIR (already isolated to /tmp/lbc-{maker,taker} by
+// scripts/basecamp-instance.sh) and to stderr with explicit fflush.
+void swapUiTrace(const QString& msg)
+{
+    const QString runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    const QString path = !runtimeDir.isEmpty()
+        ? QDir(runtimeDir).filePath(QStringLiteral("swap-ui.trace.log"))
+        : QDir::temp().filePath(QStringLiteral("swap-ui.trace.log"));
+
+    const QByteArray line =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
+        + " [swap_ui] " + msg.toUtf8() + "\n";
+
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        f.write(line);
+        f.flush();
+    }
+
+    std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+    std::fflush(stderr);
+}
 
 QString valueString(const QJsonObject& obj, const QString& key)
 {
@@ -131,7 +160,6 @@ SwapUiPlugin::SwapUiPlugin(QObject* parent)
     setEthRecipientAddress(QString{});
     setLezTakerAccountId(QString{});
     setPollIntervalMs(QStringLiteral("2000"));
-    setWakuBootstrapMultiaddr(QString{});
 
     setEthAddress(QString{});
     setEthBalance(QString{});
@@ -168,15 +196,26 @@ SwapUiPlugin::SwapUiPlugin(QObject* parent)
     setPublishingLoading(false);
     setRefundsLoading(false);
 
+    setCoordinationActiveHashlock(QString{});
+    setCoordinationEventsJson(QStringLiteral("[]"));
+    setCoordinationLastResultJson(QString{});
+
     m_messagingPollTimer.setInterval(2000);
     connect(&m_messagingPollTimer, &QTimer::timeout,
             this, &SwapUiPlugin::pollMessagingStatus);
+
+    m_coordinationPollTimer.setInterval(1000);
+    m_coordinationPollTimer.setSingleShot(false);
+    connect(&m_coordinationPollTimer, &QTimer::timeout,
+            this, &SwapUiPlugin::coordinationPollSwapEvents);
+
     validateConfig();
 }
 
 SwapUiPlugin::~SwapUiPlugin()
 {
     m_messagingPollTimer.stop();
+    m_coordinationPollTimer.stop();
     if (m_swap) {
         if (!makerJobId().isEmpty()) {
             m_swap->stopJob(makerJobId());
@@ -197,7 +236,9 @@ void SwapUiPlugin::initLogos(LogosAPI* api)
     m_swap = new Swap(api);
     setBackend(this);
     setStatus(QStringLiteral("Please choose a configuration."));
-    subscribeToSwapEvents();
+    swapUiTrace(QStringLiteral("initLogos: starting"));
+    const bool subscribed = subscribeToSwapEvents();
+    swapUiTrace(QStringLiteral("initLogos: subscribeToSwapEvents=%1").arg(subscribed ? "ok" : "failed"));
     m_messagingPollTimer.start();
     const QString autoEnvFile = qEnvironmentVariable("SWAP_UI_AUTO_ENV_FILE");
     const QString autoRole = qEnvironmentVariable("SWAP_UI_AUTO_ROLE");
@@ -327,16 +368,12 @@ QString SwapUiPlugin::configJson() const
     obj[QStringLiteral("eth_recipient_address")] = ethRecipientAddress();
     obj[QStringLiteral("lez_taker_account_id")] = lezTakerAccountId();
     obj[QStringLiteral("poll_interval_ms")] = pollIntervalMs();
-    if (!wakuBootstrapMultiaddr().isEmpty()) {
-        obj[QStringLiteral("waku_bootstrap_multiaddr")] = wakuBootstrapMultiaddr();
-    }
     return compactJson(obj);
 }
 
 QString SwapUiPlugin::messagingConfigJson() const
 {
     QJsonObject obj;
-    obj[QStringLiteral("bootstrap_multiaddr")] = wakuBootstrapMultiaddr();
     obj[QStringLiteral("listen_port")] = 0;
     obj[QStringLiteral("portsShift")] = m_deliveryPortsShift;
     return compactJson(obj);
@@ -365,7 +402,6 @@ void SwapUiPlugin::applyConfigObject(const QJsonObject& obj)
     setIfPresent(QStringLiteral("eth_recipient_address"), &SwapUiPlugin::setEthRecipientAddress);
     setIfPresent(QStringLiteral("lez_taker_account_id"), &SwapUiPlugin::setLezTakerAccountId);
     setIfPresent(QStringLiteral("poll_interval_ms"), &SwapUiPlugin::setPollIntervalMs);
-    setIfPresent(QStringLiteral("waku_bootstrap_multiaddr"), &SwapUiPlugin::setWakuBootstrapMultiaddr);
 
     if (obj.contains(QStringLiteral("swap_role"))) {
         setRole(valueString(obj, QStringLiteral("swap_role")));
@@ -472,11 +508,6 @@ bool SwapUiPlugin::validateConfig()
     if (!isPositiveInteger(pollIntervalMs())) {
         addValidationError(errors, QStringLiteral("poll_interval_ms"), QStringLiteral("Must be a positive interval"));
     }
-    if (!wakuBootstrapMultiaddr().trimmed().isEmpty()
-        && !wakuBootstrapMultiaddr().trimmed().startsWith(QStringLiteral("/"))) {
-        addValidationError(errors, QStringLiteral("waku_bootstrap_multiaddr"), QStringLiteral("Must be a multiaddr"));
-    }
-
     setValidationErrorsJson(compactJson(errors));
     return errors.isEmpty();
 }
@@ -553,18 +584,63 @@ bool SwapUiPlugin::shouldHandleJobEvent(const QString& eventName, const QJsonObj
 {
     const auto jobId = valueString(payload, QStringLiteral("job_id"));
     QString activeJobId;
+    QString activeKind;
     if (eventName.startsWith(QStringLiteral("maker_loop."))) {
         activeJobId = autoAcceptJobId();
+        activeKind = QStringLiteral("autoAcceptJobId");
     } else if (eventName.startsWith(QStringLiteral("maker."))) {
         activeJobId = makerJobId();
+        activeKind = QStringLiteral("makerJobId");
     } else if (eventName.startsWith(QStringLiteral("taker."))) {
         activeJobId = takerJobId();
+        activeKind = QStringLiteral("takerJobId");
     }
 
-    if (activeJobId.isEmpty()) {
+    const auto step = valueString(payload, QStringLiteral("step"));
+    const auto payloadRole = valueString(payload, QStringLiteral("role"));
+
+    QString expectedRole;
+    bool active = false;
+    if (eventName.startsWith(QStringLiteral("maker_loop."))) {
+        expectedRole = QStringLiteral("maker_loop");
+        active = autoAcceptRunning();
+    } else if (eventName.startsWith(QStringLiteral("maker."))) {
+        expectedRole = QStringLiteral("maker");
+        active = makerRunning();
+    } else if (eventName.startsWith(QStringLiteral("taker."))) {
+        expectedRole = QStringLiteral("taker");
+        active = takerRunning();
+    } else {
+        swapUiTrace(QStringLiteral("DROP event=%1 reason=unknown_event_name").arg(eventName));
         return false;
     }
-    return !jobId.isEmpty() && jobId == activeJobId;
+
+    if (!active) {
+        swapUiTrace(QStringLiteral("DROP event=%1 step=%2 reason=role_not_active activeKind=%3 payload.job_id=%4")
+                        .arg(eventName, step, activeKind, jobId));
+        return false;
+    }
+
+    if (!payloadRole.isEmpty() && payloadRole != expectedRole) {
+        swapUiTrace(QStringLiteral("DROP event=%1 step=%2 reason=role_mismatch payload.role=%3 expected=%4")
+                        .arg(eventName, step, payloadRole, expectedRole));
+        return false;
+    }
+
+    // Role-first / job_id-second: tolerate the early-event race where the
+    // swap-module's detached worker thread starts emitting *.progress events
+    // before startMakerLoopJobAsync's response (carrying the job_id) has
+    // landed in handleJobStartResult. Once the UI knows the active job_id,
+    // we enforce equality to reject stale events from a previous run.
+    if (!activeJobId.isEmpty() && !jobId.isEmpty() && jobId != activeJobId) {
+        swapUiTrace(QStringLiteral("DROP event=%1 step=%2 reason=job_id_mismatch payload.job_id=%3 expected=%4")
+                        .arg(eventName, step, jobId, activeJobId));
+        return false;
+    }
+
+    swapUiTrace(QStringLiteral("ACCEPT event=%1 step=%2 payload.job_id=%3 active=%4")
+                    .arg(eventName, step, jobId, activeJobId));
+    return true;
 }
 
 void SwapUiPlugin::setResultStatus(const QString& resultJson,
@@ -611,12 +687,7 @@ void SwapUiPlugin::setConfigValue(const QString& key, const QString& value)
     else if (key == QStringLiteral("eth_recipient_address")) setEthRecipientAddress(value);
     else if (key == QStringLiteral("lez_taker_account_id")) setLezTakerAccountId(value);
     else if (key == QStringLiteral("poll_interval_ms")) setPollIntervalMs(value);
-    else if (key == QStringLiteral("waku_bootstrap_multiaddr")) {
-        setWakuBootstrapMultiaddr(value);
-        setMessagingConnected(false);
-        setMessagingPeerCount(0);
-        setMessagingConnectionStatus(QString{});
-    } else {
+    else {
         setErrorMessage(QStringLiteral("Unknown config key: %1").arg(key));
         setStatus(errorMessage());
         return;
@@ -636,9 +707,6 @@ void SwapUiPlugin::loadConfig(const QString& configJson)
     setErrorMessage(QString{});
     setStatus(QStringLiteral("Config loaded"));
     validateConfig();
-    if (!wakuBootstrapMultiaddr().isEmpty()) {
-        initMessaging();
-    }
 }
 
 void SwapUiPlugin::loadEnvFile(const QString& path, const QString& role)
@@ -669,9 +737,6 @@ void SwapUiPlugin::loadEnvFile(const QString& path, const QString& role)
         }
         validateConfig();
         setStatus(QStringLiteral("Config loaded from env"));
-        if (!wakuBootstrapMultiaddr().isEmpty()) {
-            initMessaging();
-        }
     });
 }
 
@@ -739,6 +804,9 @@ void SwapUiPlugin::handleMakerFinished(const QString& resultJson)
     setMakerRunning(false);
     setMakerJobId(QString{});
     updateRunning();
+    if (m_coordinationRole == QStringLiteral("maker")) {
+        coordinationStop();
+    }
     setResultStatus(resultJson,
                     QStringLiteral("Maker swap finished"),
                     QStringLiteral("Maker swap failed"));
@@ -755,6 +823,9 @@ void SwapUiPlugin::handleTakerFinished(const QString& resultJson)
     setTakerRunning(false);
     setTakerJobId(QString{});
     updateRunning();
+    if (m_coordinationRole == QStringLiteral("taker")) {
+        coordinationStop();
+    }
     setResultStatus(resultJson,
                     QStringLiteral("Taker swap finished"),
                     QStringLiteral("Taker swap failed"));
@@ -776,6 +847,9 @@ void SwapUiPlugin::handleAutoAcceptFinished(const QString& resultJson)
     setAutoAcceptJobId(QString{});
     setMakerJobId(QString{});
     updateRunning();
+    if (m_coordinationRole == QStringLiteral("maker")) {
+        coordinationStop();
+    }
     setResultStatus(resultJson,
                     QStringLiteral("Auto-accept stopped"),
                     QStringLiteral("Auto-accept failed"));
@@ -805,19 +879,34 @@ void SwapUiPlugin::handleJobStartResult(const QString& role, const QString& resu
     }
 
     const auto jobId = jobIdFromResult(resultJson);
+    swapUiTrace(QStringLiteral("handleJobStartResult role=%1 jobId=%2 result.bytes=%3")
+                    .arg(role, jobId, QString::number(resultJson.size())));
+
+    // Late start-ack guard: if a fast *.finished event has already
+    // cleared the running flag for this role, the orchestrator job is
+    // already terminal. Don't resurrect it by setting the job_id and
+    // marking it running again.
     if (role == QStringLiteral("maker")) {
+        if (!makerRunning()) {
+            swapUiTrace(QStringLiteral("handleJobStartResult role=maker dropped — role no longer running (finished before ack)"));
+            return;
+        }
         setMakerJobId(jobId);
-        setMakerRunning(true);
         setStatus(QStringLiteral("Maker swap running"));
     } else if (role == QStringLiteral("taker")) {
+        if (!takerRunning()) {
+            swapUiTrace(QStringLiteral("handleJobStartResult role=taker dropped — role no longer running (finished before ack)"));
+            return;
+        }
         setTakerJobId(jobId);
-        setTakerRunning(true);
         setStatus(QStringLiteral("Taker swap running"));
     } else if (role == QStringLiteral("maker_loop")) {
+        if (!autoAcceptRunning()) {
+            swapUiTrace(QStringLiteral("handleJobStartResult role=maker_loop dropped — role no longer running (finished before ack)"));
+            return;
+        }
         setAutoAcceptJobId(jobId);
         setMakerJobId(jobId);
-        setAutoAcceptRunning(true);
-        setMakerRunning(true);
         setStatus(QStringLiteral("Live maker listener running"));
     }
     updateRunning();
@@ -829,6 +918,11 @@ void SwapUiPlugin::startMaker(const QString& hashlockHex)
         return;
     }
     if (!validateConfigForAction(QStringLiteral("maker"), hashlockHex, QStringLiteral("hashlock_hex"))) {
+        return;
+    }
+    if (!subscribeToSwapEvents()) {
+        setErrorMessage(QStringLiteral("Cannot start maker: swap event subscription unavailable"));
+        setStatus(errorMessage());
         return;
     }
 
@@ -851,6 +945,11 @@ void SwapUiPlugin::startTaker(const QString& preimageHex)
         return;
     }
     if (!validateConfigForAction(QStringLiteral("taker"), preimageHex, QStringLiteral("preimage_hex"))) {
+        return;
+    }
+    if (!subscribeToSwapEvents()) {
+        setErrorMessage(QStringLiteral("Cannot start taker: swap event subscription unavailable"));
+        setStatus(errorMessage());
         return;
     }
 
@@ -996,21 +1095,27 @@ void SwapUiPlugin::pollMessagingStatus()
     });
 }
 
-void SwapUiPlugin::subscribeToSwapEvents()
+bool SwapUiPlugin::subscribeToSwapEvents()
 {
+    if (m_swapEventsSubscribed && m_eventObject) {
+        return true;
+    }
     if (!m_logosAPI) {
-        return;
+        swapUiTrace(QStringLiteral("subscribeToSwapEvents: m_logosAPI null"));
+        return false;
     }
     LogosAPIClient* client = m_logosAPI->getClient(kSwapModuleName);
     if (!client) {
+        swapUiTrace(QStringLiteral("subscribeToSwapEvents: getClient(swap) returned null"));
         setErrorMessage(QStringLiteral("swap event client unavailable"));
-        return;
+        return false;
     }
 
     m_eventObject = client->requestObject(QString::fromUtf8(kSwapModuleName));
     if (!m_eventObject) {
+        swapUiTrace(QStringLiteral("subscribeToSwapEvents: requestObject(swap) returned null"));
         setErrorMessage(QStringLiteral("swap event object unavailable"));
-        return;
+        return false;
     }
 
     const QStringList eventNames{
@@ -1027,23 +1132,39 @@ void SwapUiPlugin::subscribeToSwapEvents()
             onSwapEventArgs(name, args);
         });
     }
+
+    m_swapEventsSubscribed = true;
+    swapUiTrace(QStringLiteral("subscribeToSwapEvents: subscribed to %1 events").arg(eventNames.size()));
+    return true;
 }
 
 void SwapUiPlugin::onSwapEventArgs(const QString& eventName, const QVariantList& args)
 {
+    QStringList typeNames;
+    typeNames.reserve(args.size());
+    for (const QVariant& v : args) {
+        typeNames.append(QString::fromUtf8(v.typeName() ? v.typeName() : "<null>"));
+    }
+    swapUiTrace(QStringLiteral("onSwapEventArgs event=%1 args.size=%2 types=[%3]")
+                    .arg(eventName, QString::number(args.size()), typeNames.join(QStringLiteral(","))));
     onSwapEvent(eventName, payloadFromArgs(args));
 }
 
 void SwapUiPlugin::onSwapEvent(const QString& eventName, const QString& payloadJson)
 {
+    swapUiTrace(QStringLiteral("RX event=%1 payload.bytes=%2 payload.head=%3")
+                    .arg(eventName, QString::number(payloadJson.size()), payloadJson.left(160)));
     const auto payload = parseObject(payloadJson);
     if (payload.isEmpty()) {
+        swapUiTrace(QStringLiteral("RX event=%1 DROP reason=empty_or_unparseable_payload").arg(eventName));
         return;
     }
     if (eventName.endsWith(QStringLiteral(".progress"))) {
         handleProgressEvent(eventName, payload);
     } else if (eventName.endsWith(QStringLiteral(".finished"))) {
         handleFinishedEvent(eventName, payload);
+    } else {
+        swapUiTrace(QStringLiteral("RX event=%1 DROP reason=unknown_event_suffix").arg(eventName));
     }
 }
 
@@ -1059,6 +1180,13 @@ void SwapUiPlugin::handleProgressEvent(const QString& eventName, const QJsonObje
         }
         setMakerCurrentStep(step);
         addMakerProgressStep(step);
+        if (step == QStringLiteral("EthLockDetected")) {
+            const auto hashlock = normaliseHashlock(
+                valueString(data, QStringLiteral("hashlock")));
+            if (!hashlock.isEmpty()) {
+                coordinationStart(QStringLiteral("maker"), hashlock);
+            }
+        }
         return;
     }
 
@@ -1068,6 +1196,16 @@ void SwapUiPlugin::handleProgressEvent(const QString& eventName, const QJsonObje
         }
         setTakerCurrentStep(step);
         addTakerProgressStep(step);
+        if (step == QStringLiteral("PreimageGenerated")) {
+            const auto hashlock = normaliseHashlock(
+                valueString(data, QStringLiteral("hashlock")));
+            if (!hashlock.isEmpty()) {
+                coordinationStart(QStringLiteral("taker"), hashlock);
+            }
+        } else if (step == QStringLiteral("EthLocked")) {
+            const auto swapId = valueString(data, QStringLiteral("swap_id"));
+            coordinationPublishTakerAccept(coordinationActiveHashlock(), swapId);
+        }
         return;
     }
 
@@ -1082,6 +1220,14 @@ void SwapUiPlugin::handleProgressEvent(const QString& eventName, const QJsonObje
         setAutoAcceptIteration(data.value(QStringLiteral("iteration")).toInt(autoAcceptIteration() + 1));
         setMakerCurrentStep(QStringLiteral("WaitingForEthLock"));
         addMakerProgressStep(QStringLiteral("WaitingForEthLock"));
+        // Each iteration starts a fresh swap with a fresh hashlock, so the
+        // previous per-swap Delivery subscription (if any) is no longer
+        // useful. Unsubscribe so the maker doesn't keep accumulating
+        // /atomic-swaps/1/swap-<hashlock>/json subscriptions across the
+        // life of the auto-accept loop.
+        if (m_coordinationRole == QStringLiteral("maker")) {
+            coordinationStop();
+        }
     } else if (step == QStringLiteral("AutoAcceptSwapCompleted")) {
         setAutoAcceptCompleted(autoAcceptCompleted() + 1);
         QJsonObject entry;
@@ -1194,6 +1340,11 @@ void SwapUiPlugin::startAutoAccept()
     if (!validateConfigForAction(QStringLiteral("auto_accept"))) {
         return;
     }
+    if (!subscribeToSwapEvents()) {
+        setErrorMessage(QStringLiteral("Cannot start auto-accept: swap event subscription unavailable"));
+        setStatus(errorMessage());
+        return;
+    }
 
     ensureMessagingReady([this]() {
         setPublishingLoading(true);
@@ -1248,4 +1399,174 @@ void SwapUiPlugin::stopAutoAccept()
     } else {
         m_swap->stopMakerLoop();
     }
+}
+
+QString SwapUiPlugin::normaliseHashlock(const QString& raw)
+{
+    auto trimmed = raw.trimmed();
+    if (trimmed.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)) {
+        trimmed = trimmed.mid(2);
+    }
+    if (trimmed.size() != 64) {
+        return {};
+    }
+    static const QRegularExpression re(QStringLiteral("^[0-9a-fA-F]{64}$"));
+    if (!re.match(trimmed).hasMatch()) {
+        return {};
+    }
+    return trimmed.toLower();
+}
+
+void SwapUiPlugin::coordinationStart(const QString& role, const QString& hashlockHex)
+{
+    if (!m_swap) {
+        return;
+    }
+    const auto canonical = normaliseHashlock(hashlockHex);
+    if (canonical.isEmpty()) {
+        return;
+    }
+    const auto previous = coordinationActiveHashlock();
+    if (previous == canonical && m_coordinationRole == role) {
+        return;
+    }
+    if (!previous.isEmpty()) {
+        // Clean up the prior subscription before adopting a new hashlock.
+        // Best-effort: ignore the response.
+        m_swap->unsubscribeSwapAsync(previous, [](QString){});
+    }
+
+    m_coordinationRole = role;
+    m_coordinationTakerPublished = false;
+    setCoordinationActiveHashlock(canonical);
+    setCoordinationEventsJson(QStringLiteral("[]"));
+    setCoordinationLastResultJson(QString{});
+
+    ensureMessagingReady([this, canonical]() {
+        if (!m_swap || coordinationActiveHashlock() != canonical) {
+            return;
+        }
+        m_swap->subscribeSwapAsync(canonical, [this, canonical](QString result) {
+            if (coordinationActiveHashlock() != canonical) {
+                return;
+            }
+            setCoordinationLastResultJson(result);
+            const auto error = jsonError(result);
+            if (!error.isEmpty()) {
+                qWarning() << "swap-ui: subscribeSwap failed:" << error;
+                return;
+            }
+            // Drain immediately in case Delivery already buffered events
+            // between subscribe and our first poll tick.
+            coordinationPollSwapEvents();
+            if (!m_coordinationPollTimer.isActive()) {
+                m_coordinationPollTimer.start();
+            }
+        });
+    });
+}
+
+void SwapUiPlugin::coordinationStop()
+{
+    m_coordinationPollTimer.stop();
+    const auto previous = coordinationActiveHashlock();
+    m_coordinationRole.clear();
+    m_coordinationTakerPublished = false;
+    setCoordinationActiveHashlock(QString{});
+    if (m_swap && !previous.isEmpty()) {
+        m_swap->unsubscribeSwapAsync(previous, [](QString){});
+    }
+}
+
+void SwapUiPlugin::coordinationPollSwapEvents()
+{
+    if (!m_swap) {
+        return;
+    }
+    const auto active = coordinationActiveHashlock();
+    if (active.isEmpty()) {
+        m_coordinationPollTimer.stop();
+        return;
+    }
+    m_swap->fetchSwapEventsAsync(active, [this, active](QString result) {
+        if (coordinationActiveHashlock() != active) {
+            return;
+        }
+        setCoordinationLastResultJson(result);
+        const auto obj = parseObject(result);
+        if (obj.value(QStringLiteral("ok")).toBool(false)) {
+            const auto events = obj.value(QStringLiteral("events")).toArray();
+            if (!events.isEmpty()) {
+                coordinationAppendEvents(events);
+            }
+        }
+    });
+}
+
+void SwapUiPlugin::coordinationAppendEvents(const QJsonArray& events)
+{
+    if (events.isEmpty()) {
+        return;
+    }
+    auto current = QJsonDocument::fromJson(coordinationEventsJson().toUtf8()).array();
+    for (const auto& event : events) {
+        current.append(event);
+    }
+    // Cap the surfaced list so a long-lived auto-accept loop does not bloat
+    // the QML property.
+    while (current.size() > 64) {
+        current.removeFirst();
+    }
+    setCoordinationEventsJson(
+        QString::fromUtf8(QJsonDocument(current).toJson(QJsonDocument::Compact)));
+}
+
+void SwapUiPlugin::coordinationPublishTakerAccept(const QString& hashlockHex,
+                                                  const QString& ethSwapId)
+{
+    if (!m_swap) {
+        return;
+    }
+    if (m_coordinationRole != QStringLiteral("taker")) {
+        return;
+    }
+    if (m_coordinationTakerPublished) {
+        return;
+    }
+    const auto canonical = normaliseHashlock(hashlockHex);
+    if (canonical.isEmpty() || ethSwapId.trimmed().isEmpty()) {
+        return;
+    }
+    const auto takerLezAccount = lezAccount().isEmpty() ? lezAccountId() : lezAccount();
+    const auto takerEthAddress = ethAddress();
+    if (takerLezAccount.trimmed().isEmpty() || takerEthAddress.trimmed().isEmpty()) {
+        // Without resolved balances we don't know the taker's own
+        // addresses; skip publishing rather than sending a malformed
+        // SwapAccept payload.
+        qWarning() << "swap-ui: skipping publishSwapAccept; balances not resolved yet";
+        return;
+    }
+
+    QJsonObject accept{
+        {QStringLiteral("hashlock"), canonical},
+        {QStringLiteral("eth_swap_id"), ethSwapId},
+        {QStringLiteral("taker_lez_account"), takerLezAccount},
+        {QStringLiteral("taker_eth_address"), takerEthAddress}
+    };
+
+    m_coordinationTakerPublished = true;
+    ensureMessagingReady([this, accept, canonical]() {
+        if (!m_swap || coordinationActiveHashlock() != canonical) {
+            m_coordinationTakerPublished = false;
+            return;
+        }
+        m_swap->publishSwapAcceptAsync(compactJson(accept), [this](QString result) {
+            setCoordinationLastResultJson(result);
+            const auto error = jsonError(result);
+            if (!error.isEmpty()) {
+                m_coordinationTakerPublished = false;
+                qWarning() << "swap-ui: publishSwapAccept failed:" << error;
+            }
+        });
+    });
 }

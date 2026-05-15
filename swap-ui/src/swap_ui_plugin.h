@@ -79,12 +79,21 @@ private:
     void handleJobStartResult(const QString& role, const QString& resultJson);
     void pollMessagingStatus();
     void ensureMessagingReady(std::function<void()> continuation = {});
-    void subscribeToSwapEvents();
+    bool subscribeToSwapEvents();
     void onSwapEventArgs(const QString& eventName, const QVariantList& args);
     void onSwapEvent(const QString& eventName, const QString& payloadJson);
     void handleProgressEvent(const QString& eventName, const QJsonObject& payload);
     void handleFinishedEvent(const QString& eventName, const QJsonObject& payload);
     void addValidationError(QJsonObject& errors, const QString& key, const QString& message) const;
+
+    // Per-swap Delivery coordination helpers (M2). See delivery-dogfooding.md.
+    void coordinationStart(const QString& role, const QString& hashlockHex);
+    void coordinationStop();
+    void coordinationPollSwapEvents();
+    void coordinationPublishTakerAccept(const QString& hashlockHex,
+                                        const QString& ethSwapId);
+    void coordinationAppendEvents(const QJsonArray& events);
+    static QString normaliseHashlock(const QString& raw);
 
     static QJsonObject parseObject(const QString& json);
     static QString jsonError(const QString& json);
@@ -103,8 +112,12 @@ private:
     Swap* m_swap = nullptr;
     LogosObject* m_eventObject = nullptr;
     QTimer m_messagingPollTimer;
+    QTimer m_coordinationPollTimer;
     bool m_messagingInitInFlight = false;
     int m_deliveryPortsShift = 0;
+    QString m_coordinationRole;
+    bool m_coordinationTakerPublished = false;
+    bool m_swapEventsSubscribed = false;
 };
 
 #endif // SWAP_UI_PLUGIN_H

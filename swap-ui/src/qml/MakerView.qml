@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "."
+import SwapTheme
 
 ScrollView {
     id: makerRoot

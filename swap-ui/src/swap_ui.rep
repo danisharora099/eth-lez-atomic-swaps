@@ -30,7 +30,6 @@ class SwapUi
     PROP(QString ethRecipientAddress READWRITE)
     PROP(QString lezTakerAccountId READWRITE)
     PROP(QString pollIntervalMs READWRITE)
-    PROP(QString wakuBootstrapMultiaddr READWRITE)
 
     // Balances
     PROP(QString ethAddress READWRITE)
@@ -71,6 +70,14 @@ class SwapUi
     PROP(bool offersLoading READWRITE)
     PROP(bool publishingLoading READWRITE)
     PROP(bool refundsLoading READWRITE)
+
+    // Per-swap coordination over Delivery (M2). The active hashlock is set
+    // once the side learns it (taker: from PreimageGenerated; maker: from
+    // EthLockDetected). coordinationEventsJson surfaces SwapAccept-shaped
+    // payloads received on /atomic-swaps/1/swap-<hashlock>/json.
+    PROP(QString coordinationActiveHashlock READWRITE)
+    PROP(QString coordinationEventsJson READWRITE)
+    PROP(QString coordinationLastResultJson READWRITE)
 
     SLOT(void setRole(const QString& role))
     SLOT(void setConfigValue(const QString& key, const QString& value))
