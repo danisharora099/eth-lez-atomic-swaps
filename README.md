@@ -64,7 +64,7 @@ Intel macOS is not supported because upstream does not publish a `logos-blockcha
 
 Notes:
 
-- The first full build can take 5-10 minutes because it compiles `libwaku` and the LEZ guest artifacts.
+- The first full build can take 5-10 minutes because it compiles the LEZ guest artifacts.
 - Docker or Podman is not required for the normal local flow.
 
 ### Optional for the Basecamp UI
@@ -113,7 +113,7 @@ sh <(curl -L https://nixos.org/nix/install)
 mkdir -p ~/.config/nix && echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 ```
 
-The workspace [`.cargo/config.toml`](.cargo/config.toml) already contains the macOS `aarch64` linker flags needed by `libwaku`.
+The workspace [`.cargo/config.toml`](.cargo/config.toml) contains the macOS `aarch64` linker flags used by the Rust/LEZ build.
 
 </details>
 
@@ -203,7 +203,6 @@ make infra
 
 - Anvil
 - the LEZ localnet
-- an embedded Waku rendezvous node
 - contract deployment
 - `.env` and `.env.taker` generation
 
@@ -367,7 +366,7 @@ This UI is an early scaffold. The rich legacy UI from previous iterations of thi
 | [`scaffold.toml`](scaffold.toml) | Local LEZ checkout, wallet, and localnet configuration |
 | `contracts/` | Solidity HTLC contract built with Foundry |
 | `programs/lez-htlc/` | LEZ HTLC program built with RISC Zero |
-| `src/` | Orchestration, clients, messaging, maker/taker/refund CLI flows |
+| `src/` | Orchestration, chain clients, maker/taker/refund CLI flows |
 | `swap-ffi/` | Rust C-FFI cdylib (`libswap_ffi.{dylib,so}`) — consumed by `swap-module` |
 | `swap-module/` | Universal C++ core module (Logos `type: "core"`) wrapping `swap-ffi`. Built via `logos-module-builder`. |
 | `swap-ui/` | Basecamp UI app (Logos `type: "ui_qml"`) calling `swap` over Qt Remote Objects. |
@@ -427,7 +426,7 @@ The headless CLI flow (`swap-cli`, `make demo`, `make infra`, …) is independen
 - SHA-256 is used for the hashlock so both chains share the same primitive.
 - The taker locks first, so the ETH timelock is longer and the LEZ timelock is shorter.
 - LEZ timelocks are enforced on-chain; local wall-clock checks are just for UX.
-- Waku messaging runs in-process through `libwaku`; there is no separate Docker service.
+- Offer discovery and per-swap coordination for the Basecamp UI run through `logos-delivery-module`; the Rust orchestrator remains focused on on-chain ETH/LEZ state.
 
 For more detail on the messaging side, see [delivery-dogfooding.md](delivery-dogfooding.md).
 
