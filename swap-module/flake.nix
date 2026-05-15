@@ -49,63 +49,9 @@
             url = "https://github.com/logos-blockchain/lssa/archive/9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7.tar.gz";
             sha256 = "1ay400q0yd5rj80vgkpg1pinxh1jla2al5sdrnyyb7m43rkqn44a";
           };
-          swapFfiSource = pkgs.runCommand "swap-ffi-source-no-waku" {
-            nativeBuildInputs = [ pkgs.python3 ];
-          } ''
+          swapFfiSource = pkgs.runCommand "swap-ffi-source" {} ''
             cp -R ${swap-source}/. $out
             chmod -R u+w $out
-
-            OUT="$out" python3 - <<'PY'
-            import os
-            from pathlib import Path
-
-            root = Path(os.environ["OUT"])
-
-            manifest_path = root / "Cargo.toml"
-            manifest = manifest_path.read_text()
-            for dep in ("waku-bindings", "multiaddr", "secp256k1", "rln"):
-                manifest = "\n".join(
-                    line for line in manifest.splitlines()
-                    if not line.startswith(f"{dep} = ")
-                )
-            output_lines = []
-            skipping_waku_feature = False
-            for line in manifest.splitlines():
-                if line == 'default = ["waku"]':
-                    output_lines.append('default = []')
-                elif line == 'waku = [':
-                    output_lines.append('waku = []')
-                    skipping_waku_feature = True
-                elif skipping_waku_feature:
-                    skipping_waku_feature = line != ']'
-                elif line == '    "waku",':
-                    continue
-                else:
-                    output_lines.append(line)
-            manifest = "\n".join(output_lines)
-            manifest_path.write_text(manifest + "\n")
-
-            ffi_manifest_path = root / "swap-ffi" / "Cargo.toml"
-            ffi_manifest = ffi_manifest_path.read_text()
-            ffi_manifest = ffi_manifest.replace('default = ["waku"]', 'default = []')
-            ffi_manifest_path.write_text(ffi_manifest)
-
-            lock_path = root / "Cargo.lock"
-            text = lock_path.read_text()
-            blocks = text.split("\n[[package]]\n")
-            kept = [blocks[0]]
-
-            for block in blocks[1:]:
-                if "github.com/logos-messaging/logos-delivery-rust-bindings" in block:
-                    continue
-                lines = [
-                    line for line in block.splitlines()
-                    if line not in {' "waku-bindings",', ' "waku-sys",'}
-                ]
-                kept.append("\n".join(lines))
-
-            lock_path.write_text("\n[[package]]\n".join(kept))
-            PY
           '';
         in {
           default = rustPlatform.buildRustPackage {
@@ -113,7 +59,7 @@
             version = "0.1.0";
 
             src = swapFfiSource;
-            cargoHash = "sha256-AFwbA/LU5nRm10SX8JHq0W70nrE+QMAjmzpP5UWc/mE=";
+            cargoHash = "sha256-pR1e+m+V6rjNdyDVHcG33Fe+oWYjMR1BFvklG+dlTfo=";
             cargoBuildFlags = [ "-p" "swap-ffi" "--no-default-features" ];
             doCheck = false;
             LOGOS_BLOCKCHAIN_CIRCUITS = circuits;

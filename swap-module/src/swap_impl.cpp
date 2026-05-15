@@ -3,18 +3,51 @@
 #include "swap_delivery_adapter.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <cctype>
 #include <sstream>
 #include <thread>
 
+#include <QByteArray>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QMetaObject>
+#include <QString>
 #include <QThread>
 
 #ifdef emit
 #undef emit
 #endif
+
+namespace {
+// Out-of-band trace logger — Basecamp's Qt message handler swallows
+// qInfo/qWarning, so we append to a per-instance file under
+// XDG_RUNTIME_DIR (isolated to /tmp/lbc-{maker,taker} by
+// scripts/basecamp-instance.sh) and to stderr with explicit fflush.
+void swapImplTrace(const std::string& msg)
+{
+    const QString runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    const QString path = !runtimeDir.isEmpty()
+        ? QDir(runtimeDir).filePath(QStringLiteral("swap-module.trace.log"))
+        : QDir::temp().filePath(QStringLiteral("swap-module.trace.log"));
+
+    const QByteArray line =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
+        + " [swap_impl] " + QByteArray::fromStdString(msg) + "\n";
+
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        f.write(line);
+        f.flush();
+    }
+
+    std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+    std::fflush(stderr);
+}
+} // namespace
 
 struct SwapImpl::EmitterState {
     std::mutex mutex;
@@ -278,6 +311,22 @@ std::string SwapImpl::fetchOffers() {
     return swapDeliveryFetchOffers();
 }
 
+std::string SwapImpl::subscribeSwap(const std::string& hashlockHex) {
+    return swapDeliverySubscribeSwap(hashlockHex);
+}
+
+std::string SwapImpl::unsubscribeSwap(const std::string& hashlockHex) {
+    return swapDeliveryUnsubscribeSwap(hashlockHex);
+}
+
+std::string SwapImpl::publishSwapAccept(const std::string& configJson) {
+    return swapDeliveryPublishSwapAccept(configJson);
+}
+
+std::string SwapImpl::fetchSwapEvents(const std::string& hashlockHex) {
+    return swapDeliveryFetchSwapEvents(hashlockHex);
+}
+
 std::string SwapImpl::refundLez(const std::string& configJson, const std::string& hashlockHex) {
     return takeAndFree(swap_ffi_refund_lez(configJson.c_str(), hashlockHex.c_str()));
 }
@@ -378,11 +427,14 @@ std::string SwapImpl::startJob(const std::string& roleArg,
         return errorJson("invalid job role");
     }
 
+    const bool emitterBoundBeforeAssign = static_cast<bool>(emitEvent);
     {
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = true;
         m_emitter->emit = emitEvent;
     }
+    swapImplTrace(std::string("startJob role=") + role
+                  + " emitEvent_bound=" + (emitterBoundBeforeAssign ? "true" : "false"));
 
     auto job = std::make_shared<JobState>();
     job->id = newJobId(role, m_nextJobId.fetch_add(1));
@@ -541,27 +593,46 @@ void SwapImpl::safeEmit(const std::shared_ptr<EmitterState>& emitter,
                         const std::string& payload)
 {
     if (!emitter) {
+        swapImplTrace("safeEmit DROP eventName=" + eventName + " reason=null_emitter_state");
         return;
     }
 
     auto invoke = [emitter, eventName, payload]() {
         std::function<void(const std::string&, const std::string&)> emit;
+        bool active = false;
+        bool emitSet = false;
         {
             std::lock_guard<std::mutex> lock(emitter->mutex);
-            if (!emitter->active || !emitter->emit) {
-                return;
+            active = emitter->active;
+            emitSet = static_cast<bool>(emitter->emit);
+            if (!active || !emitSet) {
+                emit = nullptr;
+            } else {
+                emit = emitter->emit;
             }
-            emit = emitter->emit;
         }
+        if (!emit) {
+            swapImplTrace("safeEmit DROP eventName=" + eventName
+                          + " reason=invoke_no_callback active=" + (active ? "true" : "false")
+                          + " emitSet=" + (emitSet ? "true" : "false"));
+            return;
+        }
+        swapImplTrace("safeEmit FIRING eventName=" + eventName
+                      + " payload.bytes=" + std::to_string(payload.size()));
         emit(eventName, payload);
     };
 
     auto* app = QCoreApplication::instance();
     if (app && QThread::currentThread() != app->thread()) {
+        swapImplTrace("safeEmit QUEUEING eventName=" + eventName
+                      + " (off-thread; payload.bytes=" + std::to_string(payload.size()) + ")");
         QMetaObject::invokeMethod(app, std::move(invoke), Qt::QueuedConnection);
         return;
     }
 
+    swapImplTrace("safeEmit DIRECT eventName=" + eventName
+                  + " payload.bytes=" + std::to_string(payload.size())
+                  + " app=" + (app ? "yes" : "no"));
     invoke();
 }
 

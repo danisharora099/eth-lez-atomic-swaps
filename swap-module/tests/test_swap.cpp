@@ -9,6 +9,8 @@
 #include <thread>
 #include <vector>
 
+std::string swapDeliveryEthAmountToWei(const std::string& ethAmount);
+
 namespace {
 
 bool waitForContains(SwapImpl& impl, const std::string& jobId, const std::string& needle)
@@ -91,6 +93,10 @@ LOGOS_TEST(delivery_messaging_requires_runtime_before_init_or_publish) {
     LOGOS_ASSERT_CONTAINS(impl.publishOffer("{}"), "messaging not initialized");
 }
 
+LOGOS_TEST(delivery_eth_amount_decimal_normalizes_to_wei) {
+    LOGOS_ASSERT_EQ(swapDeliveryEthAmountToWei("0.00000000000000001"), std::string("10"));
+}
+
 LOGOS_TEST(fetch_offers_preserves_empty_offers_shape_without_runtime) {
     SwapImpl impl;
     const auto offers = impl.fetchOffers();
@@ -163,6 +169,54 @@ LOGOS_TEST(stop_maker_loop_job_marks_job_and_finishes) {
     const auto stopped = impl.stopJob(jobId);
     LOGOS_ASSERT_CONTAINS(stopped, R"("cancel_requested":true)");
     LOGOS_ASSERT(waitForContains(impl, jobId, R"("status":"completed")"));
+}
+
+// ── Per-swap coordination (M2 Delivery) wrapper surface ────────────────────
+
+LOGOS_TEST(subscribe_swap_requires_runtime) {
+    // The unit-test build links against the no-runtime adapter stub, so the
+    // active-branch hashlock validation isn't exercised here. Active-runtime
+    // hashlock validation is covered end-to-end at the Logoscore integration
+    // layer once Delivery is initialised.
+    SwapImpl impl;
+    const std::string validHex(64, 'a');
+    LOGOS_ASSERT_CONTAINS(impl.subscribeSwap(validHex), R"("ok":false)");
+    LOGOS_ASSERT_CONTAINS(impl.subscribeSwap(validHex), "messaging not initialized");
+}
+
+LOGOS_TEST(unsubscribe_swap_requires_runtime) {
+    SwapImpl impl;
+    const std::string validHex(64, 'a');
+    LOGOS_ASSERT_CONTAINS(impl.unsubscribeSwap(validHex), R"("ok":false)");
+    LOGOS_ASSERT_CONTAINS(impl.unsubscribeSwap(validHex), "messaging not initialized");
+}
+
+LOGOS_TEST(publish_swap_accept_requires_runtime) {
+    SwapImpl impl;
+    LOGOS_ASSERT_CONTAINS(impl.publishSwapAccept("{}"), R"("ok":false)");
+    LOGOS_ASSERT_CONTAINS(impl.publishSwapAccept("{}"), "messaging not initialized");
+}
+
+LOGOS_TEST(fetch_swap_events_returns_empty_shape_without_runtime) {
+    SwapImpl impl;
+    const std::string validHex(64, 'b');
+    const auto events = impl.fetchSwapEvents(validHex);
+    LOGOS_ASSERT_CONTAINS(events, R"("method":"fetchSwapEvents")");
+    LOGOS_ASSERT_CONTAINS(events, R"("backend":"delivery_module")");
+    LOGOS_ASSERT_CONTAINS(events, R"("events":[])");
+}
+
+LOGOS_TEST(run_maker_emits_hashlock_in_eth_lock_detected) {
+    SwapImpl impl;
+    std::string progressData;
+    impl.emitEvent = [&](const std::string& name, const std::string& data) {
+        if (name == "maker.progress" && data.find("EthLockDetected") != std::string::npos) {
+            progressData = data;
+        }
+    };
+    LOGOS_ASSERT_CONTAINS(impl.runMaker("{}", ""), R"("method":"runMaker")");
+    LOGOS_ASSERT_CONTAINS(progressData, R"("step":"EthLockDetected")");
+    LOGOS_ASSERT_CONTAINS(progressData, R"("hashlock":")");
 }
 
 // Note: the rest of the API delegates straight into libswap_ffi.{dylib,so} which

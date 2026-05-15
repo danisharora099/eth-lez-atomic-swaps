@@ -53,14 +53,25 @@ public:
     // Fetch on-chain ETH and LEZ balances for the configured accounts.
     std::string fetchBalances(const std::string& configJson);
 
-    // Lifecycle for the embedded Waku messaging node.
+    // Lifecycle for the Delivery-backed messaging node.
     std::string messagingInit(const std::string& configJson);
     std::string messagingShutdown();
     std::string messagingStatus();
 
-    // Maker offer publishing / taker offer fetching over Waku.
+    // Maker offer publishing / taker offer fetching over Delivery.
     std::string publishOffer(const std::string& configJson);
     std::string fetchOffers();
+
+    // Per-swap coordination over Delivery on /atomic-swaps/1/swap-<hashlock>/json.
+    // Layered on top of the existing on-chain ETH/LEZ flow: the maker
+    // subscribes after detecting the on-chain ETH lock, the taker publishes
+    // a SwapAccept after locking ETH, and both sides drain coordination
+    // events with fetchSwapEvents. The orchestrator still relies on
+    // on-chain watchers; these calls expose the M2 Delivery channel.
+    std::string subscribeSwap(const std::string& hashlockHex);
+    std::string unsubscribeSwap(const std::string& hashlockHex);
+    std::string publishSwapAccept(const std::string& configJson);
+    std::string fetchSwapEvents(const std::string& hashlockHex);
 
     // Refunds (called once a timelock has expired and the swap stalled).
     std::string refundLez(const std::string& configJson, const std::string& hashlockHex);
@@ -69,7 +80,7 @@ public:
     // ---- Long-running flows ----
     //
     // These call into the Rust orchestrator which performs multi-step on-chain
-    // and over-Waku work. Today the FFI implementations are blocking and emit
+    // and Delivery work. Today the FFI implementations are blocking and emit
     // progress via a C callback. We expose them as blocking calls here for now
     // and route the C callback into `emitEvent`. A follow-up should make these
     // non-blocking (spawn worker thread, return swap-id immediately).
