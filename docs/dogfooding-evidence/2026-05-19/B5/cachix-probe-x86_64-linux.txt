@@ -1,0 +1,95 @@
+Per-derivation Cachix coverage probe for the upstream
+`github:logos-co/logos-delivery-module/v0.1.1` build closure on
+x86_64-linux. Captured 2026-05-19 from an aarch64-darwin host via
+`nix derivation show ... --system x86_64-linux` (pure evaluation;
+no build was performed for x86_64-linux).
+
+Method is identical to the aarch64-darwin probe in `cachix-probe.txt`:
+for each store-path output computed by `nix derivation show`, query the
+substituter's narinfo endpoint with a plain HTTP HEAD. A `200` means
+the substituter has the NAR available and a fresh consumer would
+fetch instead of build; a `404` means the consumer's `nix build` would
+fall through to building locally.
+
+Locked flake revision under test:
+  github:logos-co/logos-delivery-module/v0.1.1
+  -> 0c346c0c2ab2404c11a62cd6c385e806e8465434
+
+Top-level .drvs for x86_64-linux:
+  #lgx-portable: /nix/store/lzybyn6yr65ryzkxazhsp2aq3mx43qcg-logos-delivery_module-module-lib-lgx-1.1.0.drv
+  #lgx (-dev):   /nix/store/88fb0271hj13fjz792c5gzrlrdaaim93-logos-delivery_module-module-lib-lgx-1.1.0.drv
+
+Closure subset enumerated (`nix-store --query --requisites`
+intersected with the names called out by the dogfooding finding plus
+the `logos-cpp-sdk-*` / `logos-module` siblings for contrast). The
+leading 32-char hashes in the store paths below are anonymised to
+`<HASH>`; the unredacted hash-to-name table for this system is in
+`README.md`.
+
+  /nix/store/<HASH>-zerokit-0.9.0-vendor-staging                (FOD, cargo-vendor)
+  /nix/store/<HASH>-zerokit-0.9.0-vendor                        (FOD, cargo-vendor)
+  /nix/store/<HASH>-zerokit-0.9.0                               (Rust build)
+  /nix/store/<HASH>-liblogosdelivery-dev                        (Rust+C build)
+  /nix/store/<HASH>-logos-module-0.1.0
+  /nix/store/<HASH>-logos-delivery_module-module-lib-1.1.0      (C++ build)
+  /nix/store/<HASH>-logos-delivery_module-module-lib-bundle-1.1.0
+  /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0    (#lgx-portable)
+  /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0    (#lgx, -dev variant)
+  /nix/store/<HASH>-logos-cpp-sdk-lib-0.1.0
+  /nix/store/<HASH>-logos-cpp-sdk-generator-0.1.0
+  /nix/store/<HASH>-logos-cpp-sdk-headers-0.1.0
+
+Results (HTTP status code from
+`curl -sI -o /dev/null -w '%{http_code}' "https://${sub}/${hash}.narinfo"`):
+
+  status  derivation                                            substituter
+  ------  ----------------------------------------------------  ------------------
+  404     zerokit-0.9.0-vendor-staging                          logos-co.cachix.org
+  404     zerokit-0.9.0-vendor-staging                          cache.nixos.org
+  404     zerokit-0.9.0-vendor                                  logos-co.cachix.org
+  404     zerokit-0.9.0-vendor                                  cache.nixos.org
+  404     zerokit-0.9.0                                         logos-co.cachix.org
+  404     zerokit-0.9.0                                         cache.nixos.org
+  404     liblogosdelivery-dev                                  logos-co.cachix.org
+  404     liblogosdelivery-dev                                  cache.nixos.org
+  200     logos-module-0.1.0                                    logos-co.cachix.org
+  404     logos-module-0.1.0                                    cache.nixos.org
+  404     logos-delivery_module-module-lib-1.1.0                logos-co.cachix.org
+  404     logos-delivery_module-module-lib-1.1.0                cache.nixos.org
+  404     logos-delivery_module-module-lib-bundle-1.1.0         logos-co.cachix.org
+  404     logos-delivery_module-module-lib-bundle-1.1.0         cache.nixos.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(portable)  logos-co.cachix.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(portable)  cache.nixos.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(dev)       logos-co.cachix.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(dev)       cache.nixos.org
+  200     logos-cpp-sdk-lib-0.1.0                               logos-co.cachix.org
+  404     logos-cpp-sdk-lib-0.1.0                               cache.nixos.org
+  200     logos-cpp-sdk-generator-0.1.0                         logos-co.cachix.org
+  404     logos-cpp-sdk-generator-0.1.0                         cache.nixos.org
+  200     logos-cpp-sdk-headers-0.1.0                           logos-co.cachix.org
+  404     logos-cpp-sdk-headers-0.1.0                           cache.nixos.org
+
+Interpretation:
+
+- The pattern is identical to the aarch64-darwin baseline: every
+  derivation called out by the dogfooding finding
+  (`zerokit-*`, `liblogosdelivery-dev`,
+  `logos-delivery_module-module-lib{,-bundle,-lgx}-1.1.0` in both
+  flavours) is 404 on both substituters, while `logos-cpp-sdk-*` and
+  `logos-module-0.1.0` are 200 on `logos-co.cachix.org`. So a fresh
+  x86_64-linux downstream consumer faces the same cold-build cost as
+  aarch64-darwin.
+- `zerokit-0.9.0-vendor-staging` resolves to the same FOD output hash
+  (`lv5fw3xbiay58dasr6lcmhyxpmrbvi6n-zerokit-0.9.0-vendor-staging`)
+  across systems because it is `outputHashMode = "recursive"` with
+  declared `outputHash`. The other zerokit-vendor / zerokit /
+  liblogosdelivery / module-lib / lgx paths are system-specific (the
+  unredacted hashes in `README.md` differ from the aarch64-darwin row).
+
+Sanity baseline (Nix itself agrees with the HEAD probe):
+
+  $ nix path-info --store https://logos-co.cachix.org \
+      /nix/store/lnmn944jfcg5jiy6lqyrry4db8knnhqb-logos-delivery_module-module-lib-lgx-1.1.0
+  don't know how to build these paths:
+    /nix/store/lnmn944jfcg5jiy6lqyrry4db8knnhqb-logos-delivery_module-module-lib-lgx-1.1.0
+  error: path '/nix/store/lnmn944...lgx-1.1.0' is not valid

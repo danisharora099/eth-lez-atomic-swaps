@@ -1,0 +1,22 @@
+For completeness: `nix build --dry-run` against both flake outputs
+under test, executed in the workspace root with the substituter list in
+`nix-config.txt`. Captured 2026-05-19.
+
+  $ nix build --no-link 'github:logos-co/logos-delivery-module/v0.1.1#lgx-portable' --dry-run
+  (no output; exit 0)
+
+  $ nix build --no-link 'github:logos-co/logos-delivery-module/v0.1.1#lgx' --dry-run
+  (no output; exit 0)
+
+The empty output is *expected* in this local store: earlier B2-evidence
+sessions on this same host had already built both LGX flavours, so all
+required paths are present locally and `--dry-run` reports nothing to
+build and nothing to fetch.
+
+That is why `--dry-run` is the wrong probe for "what would a fresh
+downstream consumer see?". The honest probe is the per-derivation
+substituter HEAD in `cachix-probe.txt`, which queries
+`logos-co.cachix.org` directly and reports what `nix build` *would*
+decide if the local store were empty. Both tools combined make the
+state of cache coverage unambiguous: locally cached on this machine,
+but not present on either configured substituter on `aarch64-darwin`.

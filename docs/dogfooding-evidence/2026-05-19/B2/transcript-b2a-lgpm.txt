@@ -1,0 +1,30 @@
+===== B2a (lgpm side): `lgpm install` rejects #lgx-portable =====
+Host:    aarch64-darwin (Apple Silicon)
+Date:    2026-05-19
+lgpm:    /nix/store/<HASH>-logos-package-manager-cli-1.0.0/bin/lgpm
+         from github:logos-co/logos-package-manager#cli
+         (commit a59f14eb1045df4364d8ce795498ad2e0b323e1e)
+         built WITHOUT LGPM_PORTABLE_BUILD — `lgpm --version` = 1.0.0
+LGX:     github:logos-co/logos-delivery-module/v0.1.1#lgx-portable
+         (commit 0c346c0c2ab2404c11a62cd6c385e806e8465434)
+         manifest.json has main.darwin-arm64 (portable, no -dev suffix)
+
+$ TARGET=$(mktemp -d)
+$ "$LGPM" --modules-dir "$TARGET/modules" --ui-plugins-dir "$TARGET/plugins" install --file "$PORTABLE_LGX" --allow-unsigned
+Installing from file: /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0/logos-delivery_module-module-lib.lgx... FAILED
+Error: Package does not contain variant for platform: darwin-arm64-dev
+(exit code 1; no modules dir created)
+
+===== B2a counterexample: `lgpm install` accepts the default (#lgx, -dev) =====
+Same lgpm. LGX = github:logos-co/logos-delivery-module/v0.1.1#lgx
+(manifest.json has main.darwin-arm64-dev)
+
+$ "$LGPM" --modules-dir "$TARGET2/modules" --ui-plugins-dir "$TARGET2/plugins" install --file "$DEV_LGX" --allow-unsigned
+Installing from file: /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0/logos-delivery_module-module-lib.lgx... done
+Installed to: <TARGET2>/modules
+(exit code 0; produces <TARGET2>/modules/delivery_module/ with manifest.json,
+ delivery_module_plugin.dylib + ancillary dylibs, and variant file 'darwin-arm64-dev')
+
+Both manifests (#lgx vs #lgx-portable) inspected: only difference is the
+variant directory + matching 'main.<variant>' key. lgpm hard-codes the
+'<host>-dev' target list when built without LGPM_PORTABLE_BUILD.

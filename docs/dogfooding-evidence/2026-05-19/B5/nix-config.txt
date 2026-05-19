@@ -1,0 +1,24 @@
+Captured 2026-05-19 on aarch64-darwin (workspace root of this repo, no
+overrides applied beyond the user's stock Nix configuration).
+
+$ nix --version
+nix (Nix) 2.34.6
+
+$ uname -sm
+Darwin arm64
+
+$ nix show-config | grep -E '^(substituters|trusted-public-keys|trusted-substituters|extra-substituters)'
+substituters = https://cache.nixos.org https://logos-co.cachix.org
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= logos-co.cachix.org-1:12K8609ho1pCt0erUQrOrs/KmOuhWq/EhVwhzQRb35E=
+trusted-substituters =
+
+Notes:
+- `logos-co.cachix.org` is the Logos Cachix substituter the dogfooding
+  finding refers to. It is present in the user's `substituters` list and
+  its public key is trusted, so a fresh `nix build` against any flake
+  output below would be free to substitute from it.
+- `extra-substituters` and `trusted-substituters` are empty / unset; no
+  per-flake `nixConfig.extra-substituters` override is in play for the
+  `nix build` invocations in `nix-build-dryrun.txt`.
+- This output is public (substituter URLs and public keys are not
+  sensitive); kept verbatim.
