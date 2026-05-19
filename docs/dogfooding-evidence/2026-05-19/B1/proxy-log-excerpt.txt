@@ -1,0 +1,83 @@
+# Redacted Basecamp module-proxy log excerpts — B1
+#
+# Captured from: `bin-macos-app` LogosBasecamp (portable build, unreleased)
+# Build commits (from the boot banner of the same run):
+#   logos-basecamp 57d65eb1f5d7704e5347f573b403e385653d7d07
+#   logos-module 194778491ef4dd36967ac40cc2fec6b8a8b1d660
+#   logos-cpp-sdk 25c88f4d48fa95ea4437194bcf60bd8d0cf84a74
+#   logos-package-manager 9101875bc103214855bc6217834e22e66802ed86
+#   logos-capability-module e675e9e3a98ee69bb303365c2c626f9237bc1ab5
+#
+# Source log: /tmp/b1-proxy-on.log (this repo, 2026-05-19 boot, see README.md)
+# Modules involved: delivery_module v0.1.1, swap (this repo), swap_ui (this repo)
+#
+# Redactions applied:
+#   <REDACTED_REPO_ROOT>     -> the absolute path of this repo
+#   <REDACTED_CAPABILITY_*>  -> capability-module per-module UUID tokens
+#   <REDACTED_ETH_PRIVATE_KEY>, <REDACTED_RPC_URL>, <REDACTED_ADDRESS>,
+#   <REDACTED_LEZ_SIGNING_KEY> -> structurally-real placeholders for the
+#                                  fields that the leaky `fetchBalances`
+#                                  / `publishOffer` configJson would carry
+#
+# Line numbers preserved from /tmp/b1-proxy-on.log so re-verification is easy.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1 — REAL CAPTURE (mechanism proof)
+
+The Basecamp ModuleProxy logs every cross-module method call at INFO level
+together with the verbatim `QVariantList` of arguments. The lines below were
+written to the swap module's own log namespace (`[swap]`); the same shape
+appears for `[delivery_module]`, `[capability_module]`, `[package_manager]`,
+etc. — no per-method redaction is applied.
+
+[2026-05-19 08:02:21.100] [info] [swap] ModuleProxy: callRemoteMethod "messagingInit" args: QList(QVariant(QString, "{\"listen_port\":0,\"portsShift\":2457}"))
+[2026-05-19 08:02:23.636] [info] [swap] ModuleProxy: callRemoteMethod "loadEnv" args: QList(QVariant(QString, "<REDACTED_REPO_ROOT>/.env"))
+[2026-05-19 08:02:23.638] [info] [swap] ModuleProxy: callRemoteMethod "fetchBalancesFromEnv" args: QList(QVariant(QString, "<REDACTED_REPO_ROOT>/.env"))
+
+Note 1: `messagingInit` is a `Q_INVOKABLE std::string messagingInit(const std::string& configJson)`
+declared in [`swap-module/src/swap_impl.h#L62`](//swap-module/src/swap_impl.h#L62).
+The JSON is logged literally — every character of the configJson string
+appears in the log line. Today this configJson happens to contain only
+non-secret delivery settings, but the same proxy machinery applies to any
+`std::string` argument on any cross-module method.
+
+Note 2: `fetchBalancesFromEnv(path)` is the local mitigation shipped in
+this repo (see B1 draft). The arg is a filesystem path, not a JSON blob.
+Before this mitigation the equivalent line was
+`callRemoteMethod "fetchBalances" args: QList(QVariant(QString, "<full configJson with secrets>"))`
+(see Section 2 below).
+
+Capability-token traffic at INFO level (same run, same log) — also useful
+context for the redaction request:
+
+[2026-05-19 08:02:21.100] [info] [capability_module] CapabilityModuleImpl::requestModule token key: "delivery_module" value: "<REDACTED_CAPABILITY_TOKEN_DELIVERY>"
+[2026-05-19 08:02:21.100] [info] [capability_module] LogosAPIConsumer: Informing module token for module: "swap_ui" with token: "<REDACTED_CAPABILITY_TOKEN_SWAP_UI>"
+[2026-05-19 08:02:21.100] [info] [capability_module] ModuleProxy: callRemoteMethod "requestModule" args: QList(QVariant(QString, "swap"), QVariant(QString, "delivery_module"))
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2 — STRUCTURAL DEMONSTRATION (`fetchBalances(configJson)`)
+
+Synthesized to show exactly what the log line shape produces for the swap
+module's pre-mitigation `fetchBalances(const std::string& configJson)`
+entry point (declared at
+[`swap-module/src/swap_impl.h#L55`](//swap-module/src/swap_impl.h#L55)).
+The argument shape (string-typed JSON containing every secret-bearing
+config key the swap module recognises) is reconstructed from the live
+`.env` schema (see [`.env.example`](//.env.example)).
+All values below are placeholders — they were NOT taken from any real
+config file.
+
+[2026-05-19 08:02:23.638] [info] [swap] ModuleProxy: callRemoteMethod "fetchBalances" args: QList(QVariant(QString, "{\"eth_rpc_url\":\"<REDACTED_RPC_URL>\",\"eth_private_key\":\"<REDACTED_ETH_PRIVATE_KEY>\",\"eth_address\":\"<REDACTED_ADDRESS>\",\"lez_rpc_url\":\"<REDACTED_RPC_URL>\",\"lez_signing_key\":\"<REDACTED_LEZ_SIGNING_KEY>\",\"lez_account\":\"<REDACTED_ADDRESS>\"}"))
+
+The same shape applies to `publishOffer(const std::string& configJson)`
+([`swap_impl.h#L67`](//swap-module/src/swap_impl.h#L67)),
+`runMaker(configJson, hashlockHex)`
+([`swap_impl.h#L96`](//swap-module/src/swap_impl.h#L96)),
+`runTaker(configJson, preimageHex)`
+([`swap_impl.h#L97`](//swap-module/src/swap_impl.h#L97)),
+`refundLez(configJson, hashlockHex)`
+([`swap_impl.h#L82`](//swap-module/src/swap_impl.h#L82)),
+`refundEth(configJson, swapIdHex)`
+([`swap_impl.h#L83`](//swap-module/src/swap_impl.h#L83)),
+and every other `Q_INVOKABLE std::string method(std::string)` on any
+module — the proxy does not consult method metadata for sensitivity.

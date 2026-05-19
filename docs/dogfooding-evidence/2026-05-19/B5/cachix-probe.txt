@@ -1,0 +1,106 @@
+Per-derivation Cachix coverage probe for the upstream
+`github:logos-co/logos-delivery-module/v0.1.1` build closure on
+aarch64-darwin. Captured 2026-05-19.
+
+Method (per-derivation): for each store-path output computed by
+`nix derivation show`, query the substituter's narinfo endpoint with a
+plain HTTP HEAD. A `200` means the substituter (cachix.org or
+cache.nixos.org) has the NAR available and a fresh consumer would
+fetch instead of build; a `404` means the consumer's `nix build` would
+fall through to building locally.
+
+This is exactly the lookup `nix build` performs at evaluation time —
+it does not depend on what is currently in the local Nix store, so it
+answers "what would a fresh aarch64-darwin downstream see today?".
+
+Locked flake revision under test:
+  github:logos-co/logos-delivery-module/v0.1.1
+  -> 0c346c0c2ab2404c11a62cd6c385e806e8465434
+
+Closure subset enumerated (`nix-store --query --requisites`
+intersected with the names called out by the dogfooding finding plus
+the `logos-cpp-sdk-*` / `logos-module` siblings for contrast):
+
+  /nix/store/<HASH>-zerokit-0.9.0-vendor-staging              (FOD, cargo-vendor)
+  /nix/store/<HASH>-zerokit-0.9.0-vendor                      (FOD, cargo-vendor)
+  /nix/store/<HASH>-zerokit-0.9.0                             (Rust build)
+  /nix/store/<HASH>-liblogosdelivery-dev                      (Rust+C build)
+  /nix/store/<HASH>-logos-module-0.1.0
+  /nix/store/<HASH>-logos-delivery_module-module-lib-1.1.0    (C++ build)
+  /nix/store/<HASH>-logos-delivery_module-module-lib-bundle-1.1.0
+  /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0  (#lgx-portable)
+  /nix/store/<HASH>-logos-delivery_module-module-lib-lgx-1.1.0  (#lgx, -dev variant)
+  /nix/store/<HASH>-logos-cpp-sdk-lib-0.1.0
+  /nix/store/<HASH>-logos-cpp-sdk-generator-0.1.0
+  /nix/store/<HASH>-logos-cpp-sdk-headers-0.1.0
+
+Results (HTTP status code from
+`curl -sI -o /dev/null -w '%{http_code}' "https://${sub}/${hash}.narinfo"`):
+
+  status  derivation                                            substituter
+  ------  ----------------------------------------------------  ------------------
+  404     zerokit-0.9.0-vendor-staging                          logos-co.cachix.org
+  404     zerokit-0.9.0-vendor-staging                          cache.nixos.org
+  404     zerokit-0.9.0-vendor                                  logos-co.cachix.org
+  404     zerokit-0.9.0-vendor                                  cache.nixos.org
+  404     zerokit-0.9.0                                         logos-co.cachix.org
+  404     zerokit-0.9.0                                         cache.nixos.org
+  404     liblogosdelivery-dev                                  logos-co.cachix.org
+  404     liblogosdelivery-dev                                  cache.nixos.org
+  200     logos-module-0.1.0                                    logos-co.cachix.org
+  404     logos-module-0.1.0                                    cache.nixos.org
+  404     logos-delivery_module-module-lib-1.1.0                logos-co.cachix.org
+  404     logos-delivery_module-module-lib-1.1.0                cache.nixos.org
+  404     logos-delivery_module-module-lib-bundle-1.1.0         logos-co.cachix.org
+  404     logos-delivery_module-module-lib-bundle-1.1.0         cache.nixos.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(portable)  logos-co.cachix.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(portable)  cache.nixos.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(dev)       logos-co.cachix.org
+  404     logos-delivery_module-module-lib-lgx-1.1.0(dev)       cache.nixos.org
+  200     logos-cpp-sdk-lib-0.1.0                               logos-co.cachix.org
+  404     logos-cpp-sdk-lib-0.1.0                               cache.nixos.org
+  200     logos-cpp-sdk-generator-0.1.0                         logos-co.cachix.org
+  404     logos-cpp-sdk-generator-0.1.0                         cache.nixos.org
+  200     logos-cpp-sdk-headers-0.1.0                           logos-co.cachix.org
+  404     logos-cpp-sdk-headers-0.1.0                           cache.nixos.org
+
+Interpretation:
+
+- The four heavy derivations named in the dogfooding finding —
+  `zerokit-0.9.0-vendor-staging`, `zerokit-0.9.0`,
+  `liblogosdelivery-dev`, `logos-delivery_module-module-lib-1.1.0` —
+  are 404 on **both** substituters. So is the published artefact
+  itself (`logos-delivery_module-module-lib-lgx-1.1.0`, both the
+  `#lgx-portable` and the `#lgx` / `-dev` flavours), as is the
+  `logos-delivery_module-module-lib-bundle-1.1.0` intermediate.
+- The `logos-cpp-sdk-*` derivations and `logos-module-0.1.0` *are*
+  served by `logos-co.cachix.org` (200). So the Logos Cachix push
+  pipeline runs and works — it is just not pushing the
+  `logos-delivery-module` half of the build graph.
+- `zerokit-0.9.0-vendor{-staging,}` are fixed-output derivations (FOD;
+  `outputHashMode = "recursive"`, `outputHash` declared); 404 on
+  Cachix is less impactful than for non-FOD derivations because Nix
+  will re-fetch from upstream sources rather than rebuild. The
+  compile-time cost of the finding is therefore borne by
+  `zerokit-0.9.0`, `liblogosdelivery-dev`, and the
+  `logos-delivery_module-module-lib` chain.
+- No probe was performed for `x86_64-linux` /
+  `linux-amd64` / `x86_64-darwin` — the dogfooding session ran on
+  `aarch64-darwin` and the same gap there is what justifies the
+  finding. The Cachix narinfo probe is identical in shape for any
+  system; the upstream maintainer can rerun it themselves.
+
+Sanity baseline:
+
+  $ nix path-info --store https://logos-co.cachix.org \
+      /nix/store/cnd54gravalvijjrrplr3j6c1q1235vi-logos-delivery_module-module-lib-lgx-1.1.0
+  don't know how to build these paths:
+    /nix/store/cnd54gravalvijjrrplr3j6c1q1235vi-logos-delivery_module-module-lib-lgx-1.1.0
+  error: path '/nix/store/cnd54...lgx-1.1.0' is not valid
+
+  -> confirms the 404 above is the same answer Nix itself gets when
+     asked to substitute from that store.
+
+The leading 32-char hashes in the store paths above are anonymised in
+the table for readability; the unredacted store paths and the full
+`curl -sI` invocations are reproduced in `README.md`.

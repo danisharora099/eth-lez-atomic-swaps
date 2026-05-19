@@ -1,0 +1,129 @@
+===== B2b (Basecamp side): silent drop of wrong-variant module =====
+Host:         aarch64-darwin (Apple Silicon)
+Date:         2026-05-19
+Basecamp:     /nix/store/<HASH>-LogosBasecamp-macos-app-0.0.0-dev
+              from github:logos-co/logos-basecamp#bin-macos-app
+              (logos-basecamp 57d65eb1, logos-package-manager 9101875b,
+               logos-package-manager-module 420cca2b — see boot banner §1)
+User-dir:     /tmp/b2-bad-userdir (throwaway, not the repo's .basecamp/)
+Module under test:
+  delivery_module v1.1.0 installed at
+    /tmp/b2-bad-userdir/modules/delivery_module/
+  - manifest.json verbatim from github:logos-co/logos-delivery-module/v0.1.1#lgx
+    (main."darwin-arm64-dev" = delivery_module_plugin.dylib)
+  - variant file: 'darwin-arm64-dev'
+  - dylibs copied from the same LGX's variants/darwin-arm64-dev/
+  This is the EXACT layout that lgpm install <default #lgx> produces
+  (see transcript-b2a-lgpm.txt counterexample). It is the WRONG variant
+  for bin-macos-app, which is built WITH LGPM_PORTABLE_BUILD and so
+  resolves only 'darwin-arm64' (no -dev suffix).
+
+Command (same XDG/HOME/runtime shape as scripts/basecamp-instance.sh,
+ minus the launcher's hardcoded QT_LOGGING_RULES suppression — see B1
+ evidence README for why):
+  env -i PATH=... HOME=/tmp/b2-bad-home XDG_*=/tmp/b2-bad-xdg/* \
+    XDG_RUNTIME_DIR=/tmp/lbc-b2bad TMPDIR=/tmp/lbc-b2bad \
+    QT_LOGGING_RULES='qt.qpa.*=false' \
+    "$BIN" --user-dir /tmp/b2-bad-userdir
+
+------------------------------------------------------------------------
+§1. Boot banner (first 23 lines, verbatim — proves which Basecamp build)
+------------------------------------------------------------------------
+LogosBasecamp (portable build, unreleased)
+Build commits:
+  - logos-basecamp 57d65eb1f5d7704e5347f573b403e385653d7d07
+  - logos-nix e637a1f5e871244d1c2df1e3c52a067f2eb406f2
+  - logos-cpp-sdk 25c88f4d48fa95ea4437194bcf60bd8d0cf84a74
+  - logos-module 194778491ef4dd36967ac40cc2fec6b8a8b1d660
+  - logos-liblogos 2321de0365249e7223cac9ea2ac321fa0a2495c7
+  - logos-package-manager 9101875bc103214855bc6217834e22e66802ed86
+  - logos-package-manager-module 420cca2bdca85935236436e2982683518c6b6b10
+  - logos-package-downloader-module 5d4bc2a1cd2628329c2227cf2731066fc67396d0
+  - logos-capability-module e675e9e3a98ee69bb303365c2c626f9237bc1ab5
+  - logos-package 118ccc4efd04eb0c4d541be8db7f1075e014ac39
+  - logos-package-manager-ui e7a4d0ab504374fd8eab8893c776def6651ff127
+  - logos-webview-app b5d1bb40da6ba550076069a10cf9beaac45aa515
+  - logos-design-system 6176f0d7a5dfeb64a7f0f98e7ca2bf71a4804772
+  - logos-counter-qml 8029a894f4221f9284efabbedcee7d9d18929777
+  - logos-counter 204ec0d3f0ccffc5d40269db9e7253cba7c330d6
+  - logos-view-module-runtime 4724ded2b3068a54c9bfcded4071fc8a6f89447f
+  - logos-qt-mcp c5223b4b640add09e461983b8fddbd12c8b31f4f
+  - nix-bundle-logos-module-install 89cc9ea91275396d589c767d76926459ac77ef20
+  - nix-bundle-dir 4937262f55cf8be942263255dd0801e3e3878bc9
+  - nix-bundle-appimage 8fcc56b5afcc313ca917cf3487be082ae2f0184c
+  - nix-bundle-macos-app 900aa578506949a1e04d7dfc0b976140a96cbfc9
+
+------------------------------------------------------------------------
+§2. Auto-loaded modules at boot (verbatim, lines 43–59)
+    Only capability_module + package_manager (the embedded core modules)
+    are auto-loaded. User modules are not auto-loaded; this is by design.
+    Worth recording so the next excerpts are interpreted correctly.
+------------------------------------------------------------------------
+[2026-05-19 08:10:13.305] [info] Module loaded: capability_module
+Logos Core started successfully!
+LogosAPIConsumer: Informing module token for module: "package_manager" with token: "<REDACTED_CAPABILITY_TOKEN>"
+RemoteTransportConnection: Requesting object: "capability_module" at "08:10:13.359"
+[LogosObject] RemoteTransportConnection: returning RemoteLogosObject for: "capability_module"
+[LogosObject] Created RemoteLogosObject wrapping QRemoteObjectReplica 105553128918208
+[LogosObject] LogosAPIConsumer: calling LogosObject::informModuleToken for "package_manager"
+[2026-05-19 08:10:13.362] [info] [capability_module] [LogosProviderObject] Saving token for module: "package_manager"
+LogosAPIConsumer: informModuleToken completed with result: true
+[LogosObject] Destroying RemoteLogosObject 0
+[2026-05-19 08:10:13.363] [info] Module loaded: package_manager
+package_manager module loaded by default.
+Currently loaded modules:
+  - "package_manager"
+  - "capability_module"
+Total modules: 2
+LogosAPI: printing keys
+
+------------------------------------------------------------------------
+§3. PackageManagerLib scans the user modules directory (line 105),
+    discovers delivery_module's manifest.json, and lists it as a known
+    module — same enumeration order as the embedded modules (lines
+    321–322 from a 350-line log, abridged).
+------------------------------------------------------------------------
+[2026-05-19 08:10:13.391] [info] [package_manager] ModuleProxy: callRemoteMethod "setUserModulesDirectory" args: QList(QVariant(QString, "/tmp/b2-bad-userdir/modules"))
+...
+[2026-05-19 08:10:14.354] [info] [package_manager] ModuleProxy: callRemoteMethod "resolveFlatDependencies" args: QList(QVariant(QString, "delivery_module"), QVariant(bool, true))
+[2026-05-19 08:10:14.354] [info] [package_manager] ModuleProxy: callRemoteMethod "resolveFlatDependents" args: QList(QVariant(QString, "delivery_module"), QVariant(bool, true))
+
+Full known-modules enumeration captured by PackageManagerLib's
+resolveFlatDependencies sweep, sorted, identical to the control run with
+the CORRECT (#lgx-portable, variant=darwin-arm64) install:
+  - capability_module
+  - counter
+  - counter_qml
+  - delivery_module
+  - main_ui
+  - package_downloader
+  - package_manager
+  - package_manager_ui
+  - webview_app
+
+------------------------------------------------------------------------
+§4. WHAT IS NOT IN THE LOG (the silent-drop signal)
+------------------------------------------------------------------------
+Across all 350 captured lines:
+  grep -niE 'variant|platform|main file|mainFilePath|known modules|
+             unsupported|skipping|incompatible|not loadable|error|warn' \
+       /tmp/b2-bad.log | grep -i delivery
+produces NO output. PackageManagerLib accepted the user-modules
+directory, enumerated delivery_module from manifest.json, and discarded
+it from the load-eligible set (because manifest.json's
+main."darwin-arm64-dev" key is not in platformVariantsToTry() for a
+LGPM_PORTABLE_BUILD host) without emitting a single [info]/[warn]/[error]
+line that mentions the variant mismatch, the unsupported platform key,
+or any operator-actionable explanation. lgpm list against the same dir
+happily reports the module as installed (it reads manifest.json without
+filtering by variant — verified separately).
+
+The only downstream signal — captured during this repo's M2 cross-node
+proof against bin-macos-app before the local mitigation, cited verbatim
+in scripts/basecamp-instance.sh line 217 and in delivery-dogfooding.md —
+is the much-later runtime line:
+  '[warning] Module not found in known modules: <name>'
+  'Failed to load core dependency "<name>" for "<consumer>"'
+which fires only when a dependent UI plugin or module asks the package_manager
+to load the dropped module. By that point the operator has no breadcrumb
+back to the variant-mismatch root cause.
