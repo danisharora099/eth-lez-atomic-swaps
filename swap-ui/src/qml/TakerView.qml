@@ -144,10 +144,15 @@ ScrollView {
             // --- Discover Offers ---
             Button {
                 visible: !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: (swapBackend.offersLoading || swapBackend.messagingLoading)
-                      ? "Fetching..."
-                      : (swapBackend.messagingConnected ? "Discover Offers" : "Connect & Discover Offers")
+                text: swapBackend.messagingLoading
+                      ? "Starting Delivery..."
+                      : (swapBackend.offersLoading ? "Fetching..."
+                      : (swapBackend.messagingRetrying ? "Waiting for Delivery..."
+                      : (swapBackend.messagingConnected ? "Discover Offers" : "Waiting for Delivery...")
+                      ))
                 enabled: !swapBackend.offersLoading && !swapBackend.messagingLoading
+                         && !swapBackend.messagingRetrying
+                         && swapBackend.messagingConnected
                          && !swapBackend.running
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
@@ -271,7 +276,9 @@ ScrollView {
             // Connecting hint
             Text {
                 visible: !swapBackend.messagingConnected && !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: "Messaging is not connected yet."
+                text: swapBackend.messagingRetrying
+                      ? "Delivery is starting automatically. Offers will be received once infra is ready."
+                      : "Delivery is starting automatically."
                 color: Theme.warning
                 font.pixelSize: Theme.fontSmall
             }

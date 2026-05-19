@@ -122,7 +122,7 @@ Item {
                     font.family: "Menlo, Courier New"
                 }
                 Text {
-                    text: swapBackend.ethBalance ? parent.parent.weiToEth(swapBackend.ethBalance) : "--"
+                    text: swapBackend.balancesLoading ? "Loading..." : (swapBackend.ethBalance ? parent.parent.weiToEth(swapBackend.ethBalance) : "--")
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fontNormal
                     font.bold: true
@@ -143,7 +143,7 @@ Item {
                     font.family: "Menlo, Courier New"
                 }
                 Text {
-                    text: swapBackend.lezBalance ? swapBackend.lezBalance + " LEZ" : "--"
+                    text: swapBackend.balancesLoading ? "Loading..." : (swapBackend.lezBalance ? swapBackend.lezBalance + " LEZ" : "--")
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fontNormal
                     font.bold: true
@@ -245,7 +245,7 @@ Item {
                             return "Connecting to backend..."
                         return swapBackend.status || "Idle"
                     }
-                    color: swapBackend.errorMessage !== "" ? Theme.error : swapBackend.running ? Theme.warning : Theme.textMuted
+                    color: swapBackend.messagingRetrying ? Theme.warning : (swapBackend.errorMessage !== "" ? Theme.error : swapBackend.running ? Theme.warning : Theme.textMuted)
                     font.pixelSize: Theme.fontSmall
                 }
                 Item { Layout.fillWidth: true }
@@ -260,10 +260,12 @@ Item {
                             return "Delivery connected"
                         }
                         if (swapBackend.messagingLoading)
-                            return "Connecting..."
+                            return "Starting Delivery..."
+                        if (swapBackend.messagingRetrying)
+                            return "Waiting for Delivery..."
                         if (swapBackend.makerRunning || swapBackend.takerRunning || swapBackend.autoAcceptRunning)
                             return "Swap in progress"
-                        return "Disconnected"
+                        return "Delivery not ready"
                     }
                     color: (swapBackend.messagingConnected || swapBackend.makerRunning || swapBackend.takerRunning || swapBackend.autoAcceptRunning)
                            ? Theme.success

@@ -86,14 +86,6 @@ ScrollView {
                 font.bold: true
             }
 
-            // Auto-refresh balances after each swap
-            Connections {
-                target: swapBackend
-                function onSwapHistoryChanged() {
-                    swapBackend.fetchBalances()
-                }
-            }
-
             // --- Your Offer summary card ---
             Rectangle {
                 Layout.fillWidth: true
@@ -168,11 +160,14 @@ ScrollView {
                     }
 
                     Button {
-                        text: swapBackend.autoAcceptRunning ? "Stop Live Maker" : "Go Live & Publish Offer"
+                        text: swapBackend.messagingRetrying && !swapBackend.autoAcceptRunning
+                              ? "Waiting for Delivery..."
+                              : (swapBackend.autoAcceptRunning ? "Stop Live Maker" : "Go Live & Publish Offer")
                         enabled: swapBackend.autoAcceptRunning
                                  ? !swapBackend.messagingLoading
                                  : (!swapBackend.makerRunning && !swapBackend.takerRunning && !swapBackend.messagingLoading
-                                   )
+                                    && !swapBackend.messagingRetrying
+                                    )
                         Layout.fillWidth: true
                         Layout.preferredHeight: 42
                         onClicked: {
