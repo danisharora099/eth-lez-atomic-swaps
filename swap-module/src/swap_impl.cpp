@@ -10,11 +10,12 @@
 #include <thread>
 
 #include <QByteArray>
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QMetaObject>
+#include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QThread>
 
@@ -53,6 +54,7 @@ struct SwapImpl::EmitterState {
     std::mutex mutex;
     bool active = true;
     std::function<void(const std::string& eventName, const std::string& data)> emit;
+    QPointer<QObject> dispatcher;
 };
 
 struct SwapImpl::JobState {
@@ -246,10 +248,14 @@ SwapImpl::SwapImpl()
 
 SwapImpl::~SwapImpl()
 {
+    QPointer<QObject> dispatcher;
+    std::vector<std::thread> workers;
     {
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = false;
         m_emitter->emit = nullptr;
+        dispatcher = m_emitter->dispatcher;
+        m_emitter->dispatcher = nullptr;
     }
 
     {
@@ -263,6 +269,26 @@ SwapImpl::~SwapImpl()
         }
     }
     swap_ffi_stop_maker_loop();
+
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        workers.swap(m_workers);
+    }
+
+    for (auto& worker : workers) {
+        if (!worker.joinable()) {
+            continue;
+        }
+        if (worker.get_id() == std::this_thread::get_id()) {
+            worker.detach();
+            continue;
+        }
+        worker.join();
+    }
+
+    if (dispatcher) {
+        dispatcher->deleteLater();
+    }
 }
 
 std::string SwapImpl::takeAndFree(char* ptr) {
@@ -288,6 +314,14 @@ std::string SwapImpl::loadEnv(const std::string& path) {
 }
 
 std::string SwapImpl::fetchBalances(const std::string& configJson) {
+    return takeAndFree(swap_ffi_fetch_balances(configJson.c_str()));
+}
+
+std::string SwapImpl::fetchBalancesFromEnv(const std::string& path) {
+    const auto configJson = takeAndFree(swap_ffi_load_env(path.c_str()));
+    if (!resultError(configJson).empty()) {
+        return configJson;
+    }
     return takeAndFree(swap_ffi_fetch_balances(configJson.c_str()));
 }
 
@@ -432,6 +466,9 @@ std::string SwapImpl::startJob(const std::string& roleArg,
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = true;
         m_emitter->emit = emitEvent;
+        if (!m_emitter->dispatcher) {
+            m_emitter->dispatcher = new QObject();
+        }
     }
     swapImplTrace(std::string("startJob role=") + role
                   + " emitEvent_bound=" + (emitterBoundBeforeAssign ? "true" : "false"));
@@ -459,7 +496,7 @@ std::string SwapImpl::startJob(const std::string& roleArg,
     }
 
     auto emitter = m_emitter;
-    std::thread([job, emitter, role, configJson, secretHex]() {
+    std::thread worker([job, emitter, role, configJson, secretHex]() {
         ProgressCtx ctx{job, emitter, progressEventName(role)};
         std::string result;
         if (role == "maker") {
@@ -483,7 +520,12 @@ std::string SwapImpl::startJob(const std::string& roleArg,
 
         setJobFinished(job, result);
         safeEmit(emitter, finishedEventName(role), finishedPayload(job));
-    }).detach();
+    });
+
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        m_workers.emplace_back(std::move(worker));
+    }
 
     return jobJson(job);
 }
@@ -526,6 +568,9 @@ std::string SwapImpl::runBlockingJob(const std::string& roleArg,
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = true;
         m_emitter->emit = emitEvent;
+        if (!m_emitter->dispatcher) {
+            m_emitter->dispatcher = new QObject();
+        }
     }
 
     ProgressCtx ctx{job, m_emitter, progressEventName(role)};
@@ -622,17 +667,25 @@ void SwapImpl::safeEmit(const std::shared_ptr<EmitterState>& emitter,
         emit(eventName, payload);
     };
 
-    auto* app = QCoreApplication::instance();
-    if (app && QThread::currentThread() != app->thread()) {
-        swapImplTrace("safeEmit QUEUEING eventName=" + eventName
-                      + " (off-thread; payload.bytes=" + std::to_string(payload.size()) + ")");
-        QMetaObject::invokeMethod(app, std::move(invoke), Qt::QueuedConnection);
-        return;
+    QPointer<QObject> dispatcher;
+    {
+        std::lock_guard<std::mutex> lock(emitter->mutex);
+        dispatcher = emitter->dispatcher;
+        if (!dispatcher) {
+            swapImplTrace("safeEmit DROP eventName=" + eventName + " reason=no_dispatcher");
+            return;
+        }
+        if (QThread::currentThread() != dispatcher->thread()) {
+            swapImplTrace("safeEmit QUEUEING eventName=" + eventName
+                          + " (off-thread; payload.bytes=" + std::to_string(payload.size()) + ")");
+            QMetaObject::invokeMethod(dispatcher.data(), std::move(invoke), Qt::QueuedConnection);
+            return;
+        }
     }
 
     swapImplTrace("safeEmit DIRECT eventName=" + eventName
                   + " payload.bytes=" + std::to_string(payload.size())
-                  + " app=" + (app ? "yes" : "no"));
+                  + " dispatcher=" + (dispatcher ? "yes" : "no"));
     invoke();
 }
 

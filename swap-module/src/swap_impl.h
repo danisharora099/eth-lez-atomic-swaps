@@ -19,6 +19,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 
 extern "C" {
@@ -52,6 +53,10 @@ public:
 
     // Fetch on-chain ETH and LEZ balances for the configured accounts.
     std::string fetchBalances(const std::string& configJson);
+
+    // Load config from an env file internally, then fetch balances without
+    // exposing secret-bearing config JSON through module method arguments.
+    std::string fetchBalancesFromEnv(const std::string& path);
 
     // Lifecycle for the Delivery-backed messaging node.
     std::string messagingInit(const std::string& configJson);
@@ -160,4 +165,6 @@ private:
     std::shared_ptr<JobState> m_makerJob;
     std::shared_ptr<JobState> m_takerJob;
     std::shared_ptr<JobState> m_makerLoopJob;
+    std::mutex m_workersMutex;
+    std::vector<std::thread> m_workers;
 };
