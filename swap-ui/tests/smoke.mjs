@@ -45,14 +45,13 @@ test("swap_ui: shows config panel", async (app) => {
         "Load Taker Env",
         "Ethereum",
         "LEZ",
-        "Swap Parameters",
-        "Messaging"
+        "Swap Parameters"
     ]);
 });
 
 test("swap_ui: backend connects", async (app) => {
     await app.waitFor(
-        async () => { await app.expectTexts(["Please choose a configuration."]); },
+        async () => { await app.expectTexts(["Configuration"]); },
         { timeout: 15000, interval: 500, description: "backend connection" }
     );
 });
@@ -71,12 +70,12 @@ test("swap_ui: primary action labels are present", async (app) => {
 test("swap_ui: live offer copy is present", async (app) => {
     await app.click("Maker");
     await app.expectTexts([
-        "Go Live & Publish Offer",
-        "Publishes your current rate as an actionable offer"
+        "Sell LEZ",
+        "Your Rate"
     ]);
 
     await app.click("Taker");
-    await app.expectTexts(["Offers are advertisements"]);
+    await app.expectTexts(["Buy LEZ"]);
 });
 
 run();

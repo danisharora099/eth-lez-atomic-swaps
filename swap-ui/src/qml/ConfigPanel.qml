@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "."
+import SwapTheme
 
 ScrollView {
     id: configRoot
@@ -241,17 +241,6 @@ ScrollView {
                 errorText: configRoot.errorFor("poll_interval_ms")
             }
 
-            // --- Messaging ---
-            SectionHeader { label: "Messaging" }
-
-            ConfigField {
-                label: "Bootstrap Multiaddr"
-                text: swapBackend.wakuBootstrapMultiaddr
-                onValueEdited: (val) => swapBackend.setConfigValue("waku_bootstrap_multiaddr", val)
-                placeholderText: "/ip4/127.0.0.1/tcp/60010/p2p/..."
-                fieldEnabled: !configRoot.anyRunning
-                errorText: configRoot.errorFor("waku_bootstrap_multiaddr")
-            }
         }
     }
 

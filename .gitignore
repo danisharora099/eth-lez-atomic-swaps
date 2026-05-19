@@ -28,12 +28,15 @@ swap-module/.direnv
 swap-module/generated_code/
 swap-ui/result
 swap-ui/result-*
+
+# Two-Basecamp dogfooding instances (created by `make basecamp-init-{maker,taker}`)
+.basecamp/
 swap-ui/.direnv
-swap-module/flake.lock
 swap-ui/flake.lock
 
 # Logos dev-boost / agent context generated locally; not part of source
 .agents/
+.opencode/
 .mcp.json
 .sisyphus/
 AGENTS.md

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "."
+import SwapTheme
 
 ScrollView {
     id: takerRoot
@@ -32,7 +32,6 @@ ScrollView {
     }
 
     property var discoveredOffers: []
-    property bool fetching: false
     property var pendingOffer: null
     property var acceptedOffer: null
     property bool swapCompleted: false
@@ -96,8 +95,12 @@ ScrollView {
             Connections {
                 target: swapBackend
                 function onOffersFetched(offersJson) {
-                    takerRoot.fetching = false
-                    var obj = JSON.parse(offersJson)
+                    var obj = {}
+                    try {
+                        obj = JSON.parse(offersJson || "{}")
+                    } catch (e) {
+                        return
+                    }
                     if (obj.offers && obj.offers.length > 0) {
                         // Merge new offers with existing (relay drains are destructive)
                         var merged = takerRoot.discoveredOffers.slice()
@@ -141,11 +144,16 @@ ScrollView {
             // --- Discover Offers ---
             Button {
                 visible: !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: (fetching || swapBackend.offersLoading || swapBackend.messagingLoading)
-                      ? "Fetching..."
-                      : (swapBackend.messagingConnected ? "Discover Offers" : "Connect & Discover Offers")
-                enabled: !fetching && !swapBackend.offersLoading && !swapBackend.messagingLoading
-                         && !swapBackend.running && swapBackend.wakuBootstrapMultiaddr !== ""
+                text: swapBackend.messagingLoading
+                      ? "Starting Delivery..."
+                      : (swapBackend.offersLoading ? "Fetching..."
+                      : (swapBackend.messagingRetrying ? "Waiting for Delivery..."
+                      : (swapBackend.messagingConnected ? "Discover Offers" : "Waiting for Delivery...")
+                      ))
+                enabled: !swapBackend.offersLoading && !swapBackend.messagingLoading
+                         && !swapBackend.messagingRetrying
+                         && swapBackend.messagingConnected
+                         && !swapBackend.running
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 font.pixelSize: Theme.fontNormal
@@ -168,7 +176,6 @@ ScrollView {
                 }
 
                 onClicked: {
-                    takerRoot.fetching = true
                     swapBackend.fetchOffers()
                 }
             }
@@ -268,15 +275,17 @@ ScrollView {
 
             // Connecting hint
             Text {
-                visible: !swapBackend.messagingConnected && swapBackend.wakuBootstrapMultiaddr !== "" && !swapBackend.takerRunning && !takerRoot.swapCompleted
-                text: "Messaging is not connected yet."
+                visible: !swapBackend.messagingConnected && !swapBackend.takerRunning && !takerRoot.swapCompleted
+                text: swapBackend.messagingRetrying
+                      ? "Delivery is starting automatically. Offers will be received once infra is ready."
+                      : "Delivery is starting automatically."
                 color: Theme.warning
                 font.pixelSize: Theme.fontSmall
             }
 
             // No offers message
             Text {
-                visible: discoveredOffers.length === 0 && !fetching && !swapBackend.takerRunning && !takerRoot.swapCompleted && takerRoot.pendingOffer === null && swapBackend.messagingConnected
+                visible: discoveredOffers.length === 0 && !swapBackend.offersLoading && !swapBackend.messagingLoading && !swapBackend.takerRunning && !takerRoot.swapCompleted && takerRoot.pendingOffer === null && swapBackend.messagingConnected
                 text: "No offers found. Click \"Discover Offers\" to search."
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSmall

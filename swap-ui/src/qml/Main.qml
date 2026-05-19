@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import "."
+import SwapTheme
 
 Item {
     id: root
@@ -58,7 +58,6 @@ Item {
         readonly property string ethRecipientAddress: root.backend ? root.backend.ethRecipientAddress : ""
         readonly property string lezTakerAccountId: root.backend ? root.backend.lezTakerAccountId : ""
         readonly property string pollIntervalMs: root.backend ? root.backend.pollIntervalMs : ""
-        readonly property string wakuBootstrapMultiaddr: root.backend ? root.backend.wakuBootstrapMultiaddr : ""
         readonly property bool balancesLoading: root.backend ? root.backend.balancesLoading : false
         readonly property bool messagingLoading: root.backend ? root.backend.messagingLoading : false
         readonly property bool offersLoading: root.backend ? root.backend.offersLoading : false
@@ -91,8 +90,14 @@ Item {
 
         readonly property bool messagingConnected: root.backend ? root.backend.messagingConnected : false
         readonly property int messagingPeerCount: root.backend ? root.backend.messagingPeerCount : 0
+        readonly property string messagingConnectionStatus: root.backend ? root.backend.messagingConnectionStatus : ""
+        readonly property bool messagingRetrying: root.backend ? root.backend.messagingRetrying : false
         readonly property string offersJson: root.backend ? root.backend.offersJson : ""
         readonly property string offerResultJson: root.backend ? root.backend.offerResultJson : ""
+
+        readonly property string coordinationActiveHashlock: root.backend ? root.backend.coordinationActiveHashlock : ""
+        readonly property string coordinationEventsJson: root.backend ? root.backend.coordinationEventsJson : "[]"
+        readonly property string coordinationLastResultJson: root.backend ? root.backend.coordinationLastResultJson : ""
 
         signal offersFetched(string offersJson)
         signal offerPublished(string resultJson)

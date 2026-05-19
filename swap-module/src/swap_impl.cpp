@@ -1,23 +1,60 @@
 #include "swap_impl.h"
 
+#include "swap_delivery_adapter.h"
+
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <cctype>
 #include <sstream>
 #include <thread>
 
-#include <QCoreApplication>
+#include <QByteArray>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QMetaObject>
+#include <QObject>
+#include <QPointer>
+#include <QString>
 #include <QThread>
 
 #ifdef emit
 #undef emit
 #endif
 
+namespace {
+// Out-of-band trace logger — Basecamp's Qt message handler swallows
+// qInfo/qWarning, so we append to a per-instance file under
+// XDG_RUNTIME_DIR (isolated to /tmp/lbc-{maker,taker} by
+// scripts/basecamp-instance.sh) and to stderr with explicit fflush.
+void swapImplTrace(const std::string& msg)
+{
+    const QString runtimeDir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    const QString path = !runtimeDir.isEmpty()
+        ? QDir(runtimeDir).filePath(QStringLiteral("swap-module.trace.log"))
+        : QDir::temp().filePath(QStringLiteral("swap-module.trace.log"));
+
+    const QByteArray line =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
+        + " [swap_impl] " + QByteArray::fromStdString(msg) + "\n";
+
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        f.write(line);
+        f.flush();
+    }
+
+    std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+    std::fflush(stderr);
+}
+} // namespace
+
 struct SwapImpl::EmitterState {
     std::mutex mutex;
     bool active = true;
     std::function<void(const std::string& eventName, const std::string& data)> emit;
+    QPointer<QObject> dispatcher;
 };
 
 struct SwapImpl::JobState {
@@ -211,10 +248,14 @@ SwapImpl::SwapImpl()
 
 SwapImpl::~SwapImpl()
 {
+    QPointer<QObject> dispatcher;
+    std::vector<std::thread> workers;
     {
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = false;
         m_emitter->emit = nullptr;
+        dispatcher = m_emitter->dispatcher;
+        m_emitter->dispatcher = nullptr;
     }
 
     {
@@ -228,6 +269,26 @@ SwapImpl::~SwapImpl()
         }
     }
     swap_ffi_stop_maker_loop();
+
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        workers.swap(m_workers);
+    }
+
+    for (auto& worker : workers) {
+        if (!worker.joinable()) {
+            continue;
+        }
+        if (worker.get_id() == std::this_thread::get_id()) {
+            worker.detach();
+            continue;
+        }
+        worker.join();
+    }
+
+    if (dispatcher) {
+        dispatcher->deleteLater();
+    }
 }
 
 std::string SwapImpl::takeAndFree(char* ptr) {
@@ -256,24 +317,48 @@ std::string SwapImpl::fetchBalances(const std::string& configJson) {
     return takeAndFree(swap_ffi_fetch_balances(configJson.c_str()));
 }
 
+std::string SwapImpl::fetchBalancesFromEnv(const std::string& path) {
+    const auto configJson = takeAndFree(swap_ffi_load_env(path.c_str()));
+    if (!resultError(configJson).empty()) {
+        return configJson;
+    }
+    return takeAndFree(swap_ffi_fetch_balances(configJson.c_str()));
+}
+
 std::string SwapImpl::messagingInit(const std::string& configJson) {
-    return takeAndFree(swap_ffi_messaging_init(configJson.c_str()));
+    return swapDeliveryMessagingInit(configJson);
 }
 
 std::string SwapImpl::messagingShutdown() {
-    return takeAndFree(swap_ffi_messaging_shutdown());
+    return swapDeliveryMessagingShutdown();
 }
 
 std::string SwapImpl::messagingStatus() {
-    return takeAndFree(swap_ffi_messaging_status());
+    return swapDeliveryMessagingStatus();
 }
 
 std::string SwapImpl::publishOffer(const std::string& configJson) {
-    return takeAndFree(swap_ffi_publish_offer(configJson.c_str()));
+    return swapDeliveryPublishOffer(configJson);
 }
 
 std::string SwapImpl::fetchOffers() {
-    return takeAndFree(swap_ffi_fetch_offers());
+    return swapDeliveryFetchOffers();
+}
+
+std::string SwapImpl::subscribeSwap(const std::string& hashlockHex) {
+    return swapDeliverySubscribeSwap(hashlockHex);
+}
+
+std::string SwapImpl::unsubscribeSwap(const std::string& hashlockHex) {
+    return swapDeliveryUnsubscribeSwap(hashlockHex);
+}
+
+std::string SwapImpl::publishSwapAccept(const std::string& configJson) {
+    return swapDeliveryPublishSwapAccept(configJson);
+}
+
+std::string SwapImpl::fetchSwapEvents(const std::string& hashlockHex) {
+    return swapDeliveryFetchSwapEvents(hashlockHex);
 }
 
 std::string SwapImpl::refundLez(const std::string& configJson, const std::string& hashlockHex) {
@@ -376,11 +461,17 @@ std::string SwapImpl::startJob(const std::string& roleArg,
         return errorJson("invalid job role");
     }
 
+    const bool emitterBoundBeforeAssign = static_cast<bool>(emitEvent);
     {
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = true;
         m_emitter->emit = emitEvent;
+        if (!m_emitter->dispatcher) {
+            m_emitter->dispatcher = new QObject();
+        }
     }
+    swapImplTrace(std::string("startJob role=") + role
+                  + " emitEvent_bound=" + (emitterBoundBeforeAssign ? "true" : "false"));
 
     auto job = std::make_shared<JobState>();
     job->id = newJobId(role, m_nextJobId.fetch_add(1));
@@ -405,7 +496,7 @@ std::string SwapImpl::startJob(const std::string& roleArg,
     }
 
     auto emitter = m_emitter;
-    std::thread([job, emitter, role, configJson, secretHex]() {
+    std::thread worker([job, emitter, role, configJson, secretHex]() {
         ProgressCtx ctx{job, emitter, progressEventName(role)};
         std::string result;
         if (role == "maker") {
@@ -429,7 +520,12 @@ std::string SwapImpl::startJob(const std::string& roleArg,
 
         setJobFinished(job, result);
         safeEmit(emitter, finishedEventName(role), finishedPayload(job));
-    }).detach();
+    });
+
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        m_workers.emplace_back(std::move(worker));
+    }
 
     return jobJson(job);
 }
@@ -472,6 +568,9 @@ std::string SwapImpl::runBlockingJob(const std::string& roleArg,
         std::lock_guard<std::mutex> lock(m_emitter->mutex);
         m_emitter->active = true;
         m_emitter->emit = emitEvent;
+        if (!m_emitter->dispatcher) {
+            m_emitter->dispatcher = new QObject();
+        }
     }
 
     ProgressCtx ctx{job, m_emitter, progressEventName(role)};
@@ -539,27 +638,54 @@ void SwapImpl::safeEmit(const std::shared_ptr<EmitterState>& emitter,
                         const std::string& payload)
 {
     if (!emitter) {
+        swapImplTrace("safeEmit DROP eventName=" + eventName + " reason=null_emitter_state");
         return;
     }
 
     auto invoke = [emitter, eventName, payload]() {
         std::function<void(const std::string&, const std::string&)> emit;
+        bool active = false;
+        bool emitSet = false;
         {
             std::lock_guard<std::mutex> lock(emitter->mutex);
-            if (!emitter->active || !emitter->emit) {
-                return;
+            active = emitter->active;
+            emitSet = static_cast<bool>(emitter->emit);
+            if (!active || !emitSet) {
+                emit = nullptr;
+            } else {
+                emit = emitter->emit;
             }
-            emit = emitter->emit;
         }
+        if (!emit) {
+            swapImplTrace("safeEmit DROP eventName=" + eventName
+                          + " reason=invoke_no_callback active=" + (active ? "true" : "false")
+                          + " emitSet=" + (emitSet ? "true" : "false"));
+            return;
+        }
+        swapImplTrace("safeEmit FIRING eventName=" + eventName
+                      + " payload.bytes=" + std::to_string(payload.size()));
         emit(eventName, payload);
     };
 
-    auto* app = QCoreApplication::instance();
-    if (app && QThread::currentThread() != app->thread()) {
-        QMetaObject::invokeMethod(app, std::move(invoke), Qt::QueuedConnection);
-        return;
+    QPointer<QObject> dispatcher;
+    {
+        std::lock_guard<std::mutex> lock(emitter->mutex);
+        dispatcher = emitter->dispatcher;
+        if (!dispatcher) {
+            swapImplTrace("safeEmit DROP eventName=" + eventName + " reason=no_dispatcher");
+            return;
+        }
+        if (QThread::currentThread() != dispatcher->thread()) {
+            swapImplTrace("safeEmit QUEUEING eventName=" + eventName
+                          + " (off-thread; payload.bytes=" + std::to_string(payload.size()) + ")");
+            QMetaObject::invokeMethod(dispatcher.data(), std::move(invoke), Qt::QueuedConnection);
+            return;
+        }
     }
 
+    swapImplTrace("safeEmit DIRECT eventName=" + eventName
+                  + " payload.bytes=" + std::to_string(payload.size())
+                  + " dispatcher=" + (dispatcher ? "yes" : "no"));
     invoke();
 }
 
