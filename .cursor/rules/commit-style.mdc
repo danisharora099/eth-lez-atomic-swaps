@@ -1,0 +1,47 @@
+---
+description: Commit conventions for this repo — strip Cursor coauthor trailer, single-line subject, no body unless asked.
+alwaysApply: true
+---
+
+# Git Commit Conventions
+
+## Strip the Cursor coauthor trailer
+
+When `CURSOR_AGENT=1` (set by default inside Cursor's agent runtime), every
+`git commit` gets a `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer
+appended. This trailer is NOT wanted on this repo.
+
+`--no-verify` does NOT bypass it — the trailer is added by Cursor's git
+wrapper, not a hook. The reliable fix is to unset the env var per-command.
+
+### Rule
+
+Always prefix `git commit` with `env -u CURSOR_AGENT`:
+
+❌ BAD
+```bash
+git commit -m "fix: something"
+git commit --no-verify -m "fix: something"
+```
+
+✅ GOOD
+```bash
+env -u CURSOR_AGENT git commit -m "fix: something"
+env -u CURSOR_AGENT git commit --amend -m "fix: something"
+```
+
+Verify the result with `git log -1 --format=fuller` — there must be no
+`Co-authored-by:` line.
+
+## Message style
+
+- Single-line subject. No body unless the user explicitly asks for one.
+- Conventional Commits prefix: `feat:`, `fix:`, `chore:`, `docs:`,
+  `refactor:`, `test:`, with optional scope (e.g. `chore(scaffold): …`).
+- Match the existing repo style — check `git log --oneline -10` before
+  drafting.
+
+## Author
+
+Author and committer must always be `danisharora099 <danisharora099@gmail.com>`.
+Never add any `Co-authored-by` trailer (Cursor, Claude, Composer, or otherwise).
