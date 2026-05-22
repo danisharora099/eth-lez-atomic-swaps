@@ -9,12 +9,31 @@ For mental model + per-entry rationale, see
 
 ## Current state
 
+**All 19 tracker entries are now either filed (18) or retired (TR-18).** Upstream queue is empty; the remaining work is project-internal cleanup as upstream lands.
+
+### Upstream filings (all 2026-05-22 unless noted)
+
+| Tracker | Issue / PR | Repo |
+|---|---|---|
+| TR-01 + TR-02 (subsumed) | [#170](https://github.com/logos-co/scaffold/issues/170) | scaffold |
+| TR-03 (primary) | [#14](https://github.com/logos-co/logos-package-manager/issues/14) | logos-package-manager |
+| TR-03 (companion) | [#197](https://github.com/logos-co/logos-basecamp/issues/197) | logos-basecamp |
+| U-A umbrella (TR-04, TR-05, TR-08, TR-12, TR-16, TR-17) | [#171](https://github.com/logos-co/scaffold/issues/171) | scaffold |
+| U-B umbrella (TR-06, TR-19) | [#172](https://github.com/logos-co/scaffold/issues/172) | scaffold |
+| U-C (TR-07) | [#173](https://github.com/logos-co/scaffold/issues/173) | scaffold |
+| U-D umbrella (TR-10, TR-14, TR-15) | [#174](https://github.com/logos-co/scaffold/issues/174) | scaffold |
+| TR-09 | [#175](https://github.com/logos-co/scaffold/issues/175) | scaffold |
+| TR-20 | [#176](https://github.com/logos-co/scaffold/issues/176) | scaffold |
+| TR-11 (doc PR) | [#177](https://github.com/logos-co/scaffold/pull/177) | scaffold |
+| TR-13 (doc PR) | [#178](https://github.com/logos-co/scaffold/pull/178) | scaffold |
+
+### Project-internal state
+
 | Already done | In-flight | Pending decision |
 |---|---|---|
 | `scaffold.toml` upgraded to 0.2.0 schema + `[modules.*]` block added (swap, swap_ui, delivery_module) | [PR #26](https://github.com/logos-co/eth-lez-atomic-swaps/pull/26) — swap-vendor-ffi → Nix dev shell *(landed without approval — review needed)* | All Bucket 1 Makefile deletions |
 | `docs/scaffold-upstream-tracker.md` — 19 entries (incl. TR-20), mental model, glossary, TOC | T-019e45fb — LMB-01 investigation (logos-module-builder upstream) | `[run.profiles.{test,demo}]` partial adoption |
-| **TR-01 filed:** [logos-co/scaffold#170](https://github.com/logos-co/scaffold/issues/170) — `v0.2.0` tag + bi-weekly cadence + acceptance criteria | [logos-co/scaffold#169](https://github.com/logos-co/scaffold/pull/169) — narrow SPel public-pin fix (near landing) | All Bucket 2 / 3 long-term deletions (wait on upstream) |
-| **TR-02 subsumed by #170:** the issue's acceptance criteria explicitly include "CI verifies scaffold's hardcoded default pins are public-reachable" | | |
+| All 9 upstream filings done (see table above) | [logos-co/scaffold#169](https://github.com/logos-co/scaffold/pull/169) — narrow SPel public-pin fix (near landing) | All Bucket 2 / 3 long-term deletions (wait on upstream) |
 
 ## Upstream filing queue (scaffold)
 
@@ -27,7 +46,7 @@ prompt sketch.
 |---|---|---|
 | **TR-01** Cut `v0.2.0` tag | ✅ Filed as [#170](https://github.com/logos-co/scaffold/issues/170) | Scoped broader than original — adds bi-weekly cadence + acceptance criteria covering SPEL/LEZ matching releases, `lez-template` rename decision, and CI guardrails |
 | **TR-02** Sweep default SHAs for public reachability | ✅ Subsumed by [#170](https://github.com/logos-co/scaffold/issues/170) | #170's acceptance criteria explicitly include "CI verifies scaffold's hardcoded default pins are public-reachable" — no separate issue needed |
-| **TR-03** Align `bin-macos-app` and `lgpm` `LGPM_PORTABLE_BUILD` | ⏳ Unfiled | Cross-repo (`logos-co/logos-basecamp` + `logos-co/logos-package-manager`). High — design decision needed |
+| **TR-03** Align `bin-macos-app` and `lgpm` `LGPM_PORTABLE_BUILD` | ✅ Filed cross-repo on 2026-05-22 | Primary [logos-package-manager#14](https://github.com/logos-co/logos-package-manager/issues/14), companion [logos-basecamp#197](https://github.com/logos-co/logos-basecamp/issues/197). Options A/B/C surfaced, manifest-mismatch loud-error sub-ask included. Awaiting maintainer pick on direction. |
 
 Companion PR: [logos-co/scaffold#169](https://github.com/logos-co/scaffold/pull/169) — narrow SPel public-pin fix (commit-only pin), near landing.
 
@@ -50,10 +69,10 @@ issue without approval.
 
 | Umbrella issue | Tracker entries | Why bundle |
 |---|---|---|
-| **U-A: `[basecamp.profiles.*]` schema** | TR-04, TR-05, TR-08, TR-12, TR-16, TR-17 | All add fields to the same TOML table; coherent design surface |
-| **U-B: `lgs run` pipeline extensions** | TR-06, TR-19 | Both extend the pipeline stage model |
-| **U-C: `[circuits]` schema** | TR-07 | Standalone — no natural bundle |
-| **U-D: `lgs basecamp` verb granularity** | TR-10, TR-14, TR-15 | All add per-module/per-variant verbs to the basecamp surface |
+| **U-A: `[basecamp.profiles.*]` schema** ✅ [#171](https://github.com/logos-co/scaffold/issues/171) | TR-04, TR-05, TR-08, TR-12, TR-16, TR-17 | Filed 2026-05-22 as umbrella with six labeled sub-asks. Reviewer to call subsume-vs-split on overlap with [#163](https://github.com/logos-co/scaffold/issues/163) (ask 1) and [#89](https://github.com/logos-co/scaffold/issues/89) (ask 2). |
+| **U-B: `lgs run` pipeline extensions** ✅ [#172](https://github.com/logos-co/scaffold/issues/172) | TR-06, TR-19 | Filed 2026-05-22 as umbrella with three labeled sub-asks (`pre_localnet`, coprocess hooks, `stop_on_exit`). Two coprocess design shapes surfaced for maintainer pick. |
+| **U-C: `[circuits]` schema** ✅ [#173](https://github.com/logos-co/scaffold/issues/173) | TR-07 | Filed 2026-05-22. Body proposes `[circuits]` schema + `lgs setup` auto-fetch + `lgs doctor` check + auto-export of `LOGOS_BLOCKCHAIN_CIRCUITS`. |
+| **U-D: `lgs basecamp` verb granularity** ✅ [#174](https://github.com/logos-co/scaffold/issues/174) | TR-10, TR-14, TR-15 | Filed 2026-05-22 as umbrella with three labeled sub-asks (`build`, `--variant` filter, `run <module>`). Verb-naming decision (`build` + flags vs extend `build-portable`) flagged for reviewer. |
 
 #### Handoff prompt template (umbrella, e.g. U-A)
 ```
@@ -77,10 +96,10 @@ conventions look like (check open issues first).
 
 | Item | Type | Notes |
 |---|---|---|
-| **TR-09** | Issue | `lgs run --watch` debounce + globs |
-| **TR-11** | Doc PR | One-paragraph addition to `docs/basecamp-module-requirements.md` |
-| **TR-13** | Doc PR | One-line cross-ref `--user-dir` vs XDG |
-| **TR-20** | Issue | `lgs basecamp develop <module>` for verb-set symmetry (composes with LMB-01) |
+| **TR-09** ✅ [#175](https://github.com/logos-co/scaffold/issues/175) | Issue | `lgs run --watch` debounce + globs — filed 2026-05-22 |
+| **TR-11** ✅ [#177](https://github.com/logos-co/scaffold/pull/177) | Doc PR | Hand-authored `[modules.*]` tables blessed — filed 2026-05-22 |
+| **TR-13** ✅ [#178](https://github.com/logos-co/scaffold/pull/178) | Doc PR | `--user-dir` vs XDG isolation cross-ref — filed 2026-05-22 |
+| **TR-20** ✅ [#176](https://github.com/logos-co/scaffold/issues/176) | Issue | `lgs basecamp develop <module>` — filed 2026-05-22. LMB-01 cross-link pending. |
 
 ## Project-internal cleanup queue (separate from upstream)
 

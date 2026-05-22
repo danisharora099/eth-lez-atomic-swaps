@@ -174,6 +174,8 @@ Any of these going dark in a public-reachability sense silently breaks a fresh `
 
 ### Align `bin-macos-app` and `lgpm` on the same `LGPM_PORTABLE_BUILD` mode — P0
 
+**Status.** ✅ Filed cross-repo on 2026-05-22: primary [`logos-co/logos-package-manager#14`](https://github.com/logos-co/logos-package-manager/issues/14) (the variant-suffix logic + Options A/B/C + sub-ask for loud-error-on-manifest-mismatch), companion [`logos-co/logos-basecamp#197`](https://github.com/logos-co/logos-basecamp/issues/197) (basecamp-side escape hatch). Cross-links established both ways.
+
 **TL;DR.** `bin-macos-app` (the released AppImage-style Basecamp) accepts only `#lgx-portable`. The host-installed `lgpm` CLI accepts only `#lgx`. So `lgs basecamp install` is unusable on the distributed stack — we have to bypass `lgpm` with a hand-rolled shell extractor.
 
 **Why this hurts us.**
@@ -207,6 +209,8 @@ Until this is fixed, `lgs basecamp install` / `launch` is unusable on the distri
 
 ### `lgs basecamp launch` exposes macOS `XDG_RUNTIME_DIR` short-path override — P1
 
+**Status.** ✅ Filed 2026-05-22 as ask 2 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171) (`[basecamp.profiles.<name>]` schema).
+
 **TL;DR.** macOS caps Unix-domain-socket paths at 104 bytes. liblogos socket names overflow any deep `XDG_RUNTIME_DIR`. `lgs basecamp launch` puts XDG dirs under the project root by default — guaranteed to break on any `/Users/<user>/Developer/...` checkout.
 
 **Why this hurts us.** Forced to set `XDG_RUNTIME_DIR=/tmp/lbc-<name>` and `TMPDIR=$XDG_RUNTIME_DIR` in [`scripts/basecamp-instance.sh` lines 60-65, 263-265, 278-290](../scripts/basecamp-instance.sh#L60-L290). Captured in [`delivery-dogfooding.md`: "short-path requirement for Basecamp runtime sockets is undocumented"](../delivery-dogfooding.md#L213-L239).
@@ -229,6 +233,8 @@ Every macOS basecamp consumer must independently re-discover this. The error mes
 ## TR-05
 
 ### Per-profile env files in `[modules.*]` / `[basecamp.profiles.*]` — P1
+
+**Status.** ✅ Filed 2026-05-22 as ask 1 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171) (`[basecamp.profiles.<name>]` schema). Overlaps with existing [#163](https://github.com/logos-co/scaffold/issues/163); reviewer to call subsume vs split.
 
 **TL;DR.** This project's two-Basecamp dogfooding needs maker to load `.env` and taker to load `.env.taker`. Scaffold has no way to declare that mapping; the launcher script hard-codes it.
 
@@ -261,6 +267,8 @@ Composes with TR-17 (configurable profile names) so the names in the table can b
 
 ### `lgs run` gains pre-localnet / co-process hook stages (for Anvil) — P1
 
+**Status.** ✅ Filed 2026-05-22 as ask 2 of umbrella [logos-co/scaffold#172](https://github.com/logos-co/scaffold/issues/172) (`lgs run` pipeline extensions). Two design shapes surfaced (`[…coprocess.*]` table vs `daemon = true` on hooks) for maintainer pick.
+
 **TL;DR.** `lgs run` covers the LEZ-side of `make infra` perfectly, but can't manage an in-process Anvil daemon that needs to be alive *during* the post-deploy hook (so the hook can read Anvil's ephemeral RPC URL and private keys).
 
 **Why this hurts us.** [`src/cli/infra.rs` lines 48-200](../src/cli/infra.rs#L48-L200) is 152 lines of hand-rolled orchestration that lives outside scaffold purely because `lgs run` doesn't model long-lived sibling processes.
@@ -283,6 +291,8 @@ A successful design would let this project shrink `src/cli/infra.rs` to a small 
 ## TR-07
 
 ### `[circuits]` schema + `lgs setup` auto-fetch — P1
+
+**Status.** ✅ Filed 2026-05-22 as [logos-co/scaffold#173](https://github.com/logos-co/scaffold/issues/173) (standalone, U-C). Body proposes `[circuits]` schema + auto-export + `lgs doctor` check; flagged "derive circuits version from LEZ pin" as potential follow-on.
 
 **TL;DR.** Every LEZ project needs to fetch a matching `logos-blockchain-circuits` release bundle and point `LOGOS_BLOCKCHAIN_CIRCUITS` at it. This project does 68 lines of platform-detect + curl in the Makefile. Scaffold should own this.
 
@@ -321,6 +331,8 @@ Every LEZ project re-implements this. The fix is purely additive.
 
 ### Per-platform `[repos.basecamp].attr` map (`bin-macos-app` darwin, `bin-appimage` linux) — P1
 
+**Status.** ✅ Filed 2026-05-22 as ask 4 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171). Note: lives on `[repos.basecamp]` rather than `[basecamp.profiles.*]`; bundled into U-A because it touches the same launch-binary-resolution codepath. Composes with cross-repo [logos-package-manager#14](https://github.com/logos-co/logos-package-manager/issues/14) (TR-03).
+
 **TL;DR.** `lgs basecamp setup`/`launch` hard-codes the basecamp flake's `app` attr (the dev-stack binary). Distributed-stack projects need `bin-macos-app` on darwin and `bin-appimage` on linux. This is a cross-platform need, not macOS-special.
 
 **Why this hurts us.** Per-platform binary selection in [`scripts/basecamp-instance.sh` lines 71-95, 252-291](../scripts/basecamp-instance.sh#L71-L291) and the `BASECAMP_PACKAGE` bash switch.
@@ -354,6 +366,8 @@ Together with TR-03 (lgpm variant alignment), TR-08 is what would let `lgs basec
 
 ### `lgs run --watch` debounce + glob filters — P2
 
+**Status.** ✅ Filed 2026-05-22 as [logos-co/scaffold#175](https://github.com/logos-co/scaffold/issues/175) (standalone P2).
+
 **TL;DR.** Today `--watch` re-runs the full pipeline on any filesystem change with a 500ms debounce. A `[run.watch]` glob filter would let users scope re-deploys to just inputs that change a guest binary hash.
 
 **Why this hurts us.** Indirect — would matter once this project adopts `lgs run`. Edits to orchestrator Rust (`src/`) shouldn't trigger guest-program re-deploys.
@@ -372,6 +386,8 @@ Default debounce coalesces a flurry of editor saves into one re-run, which is ri
 ## TR-10
 
 ### `lgs basecamp build-portable` should optionally also build `#lgx` — P2
+
+**Status.** ✅ Filed 2026-05-22 as ask 2 of umbrella [logos-co/scaffold#174](https://github.com/logos-co/scaffold/issues/174) (`lgs basecamp` verb granularity). Largely subsumed by ask 1 (`lgs basecamp build` with `--variant` flag); reviewer to call verb-naming decision.
 
 **TL;DR.** `build-portable` builds only `#lgx-portable`. The project's `make swap-lgx-build` builds both because the standalone-app smoke test (`make swap-ui-run`) loads `#lgx`. A `--variants` flag would let one command cover both.
 
@@ -392,6 +408,8 @@ Composes with TR-14 (granular per-module build). Together they let `swap-lgx-bui
 
 ### Document `[modules.*]` is hand-editable without `lgs basecamp modules` — P2
 
+**Status.** ✅ Filed 2026-05-22 as doc PR [logos-co/scaffold#177](https://github.com/logos-co/scaffold/pull/177).
+
 **TL;DR.** The skill docs say "manual edits are preserved across re-runs" but don't explicitly state you can hand-author `[modules.*]` entries with no `lgs basecamp` invocation at all. This project did exactly that for drift detection; worth blessing as a supported pattern.
 
 **Why this hurts us.** This project's `scaffold.toml` lines 31-46 — declarative seeding for drift detection without invoking `lgs basecamp setup`. Worked but felt off-spec.
@@ -410,6 +428,8 @@ Composes with TR-14 (granular per-module build). Together they let `swap-lgx-bui
 ## TR-12
 
 ### `lgs basecamp launch --log-file` (or default tee) — P2
+
+**Status.** ✅ Filed 2026-05-22 as ask 5 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171).
 
 **TL;DR.** Debugging two simultaneous instances is much easier when each launch tees its output to a file. This project does `2>&1 | tee` in the bash launcher; scaffold's `launch` `exec`s and gives up the parent process.
 
@@ -430,6 +450,8 @@ Bundle with TR-04 / TR-05 / TR-08 / TR-16 — all are touching `lgs basecamp lau
 
 ### Document `--user-dir` vs scaffold's XDG isolation — P2
 
+**Status.** ✅ Filed 2026-05-22 as doc PR [logos-co/scaffold#178](https://github.com/logos-co/scaffold/pull/178).
+
 **TL;DR.** Pure docs ask. `bin-macos-app` grew a first-class `--user-dir` flag that removed the old `LOGOS_DATA_DIR + Dev` suffix dance. Scaffold uses XDG-based isolation instead. Worth a short note explaining the relationship.
 
 **Why this hurts us.** None — purely a doc clarity item. Captured in [`delivery-dogfooding.md`: "--user-dir flag cleanly isolates Basecamp instances"](../delivery-dogfooding.md#L418-L433).
@@ -448,6 +470,8 @@ Reduces churn for downstream multi-instance test harnesses that read both pieces
 ## TR-14
 
 ### `lgs basecamp build` (default `#lgx` variant, granular per module) — P1
+
+**Status.** ✅ Filed 2026-05-22 as ask 1 of umbrella [logos-co/scaffold#174](https://github.com/logos-co/scaffold/issues/174) (`lgs basecamp` verb granularity).
 
 **TL;DR.** Today the only way to build a single module's `#lgx` (without installing it) is raw `nix build` — exactly the workflow we're trying to retire ("use scaffold, not shell/nix").
 
@@ -474,6 +498,8 @@ The combined effect with TR-10: `swap-module-build` becomes `lgs basecamp build 
 
 ### `lgs basecamp run <module> [--host standalone|basecamp]` — P1
 
+**Status.** ✅ Filed 2026-05-22 as ask 3 of umbrella [logos-co/scaffold#174](https://github.com/logos-co/scaffold/issues/174) (`lgs basecamp` verb granularity).
+
 **TL;DR.** UI module dev iteration loop = `nix run` the module inside `logos-standalone-app` (the dependency-bundling test runner from `logos-module-builder`). Scaffold has no equivalent — consumers drop back to raw `nix run` from the module's subdirectory.
 
 **Why this hurts us.** [`Makefile` lines 134-136](../Makefile#L134-L136) (`swap-ui-run`).
@@ -497,6 +523,8 @@ Closes the "everything goes through `lgs`" loop for the UI dev cycle. Today ever
 ## TR-16
 
 ### `lgs basecamp paths <profile>` (debug introspection) — P2
+
+**Status.** ✅ Filed 2026-05-22 as ask 6 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171).
 
 **TL;DR.** Print the resolved per-profile path manifest (XDG, runtime, wallet, log, env-file, basecamp binary). `lgs basecamp doctor` shows summary state; `paths` would give the full disk layout for a profile.
 
@@ -527,6 +555,8 @@ Bundle into the same PR as TR-04 / TR-05 / TR-08 / TR-12 — all touching `lgs b
 
 ### Configurable basecamp profile names (`maker`/`taker` instead of `alice`/`bob`) — P1
 
+**Status.** ✅ Filed 2026-05-22 as ask 3 of umbrella [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171).
+
 **TL;DR.** Scaffold hardcodes profiles to `alice`/`bob`. Domain-specific projects (atomic swaps = maker/taker, lending = borrower/lender, etc.) carry semantic role names everywhere else in their code — being forced to translate via "alice = maker, bob = taker" is needless cognitive overhead.
 
 **Why this hurts us.** Every basecamp target carries `maker`/`taker` naming: [`scripts/basecamp-instance.sh` lines 45-69](../scripts/basecamp-instance.sh#L45-L69), [`Makefile` lines 4-6](../Makefile#L4-L6). The rest of the project's code, docs, env files (`.env` for maker, `.env.taker` for taker), and the swap-ui's `SWAP_UI_AUTO_ROLE` env var all use maker/taker.
@@ -552,6 +582,8 @@ Composes naturally with TR-05 (per-profile env files) — both touch the same `[
 ## TR-19
 
 ### `lgs run` `stop_on_exit` + `pre_localnet` hook stages — P1
+
+**Status.** ✅ Filed 2026-05-22 as asks 1 and 3 of umbrella [logos-co/scaffold#172](https://github.com/logos-co/scaffold/issues/172) (`lgs run` pipeline extensions). `stop_on_exit` flagged as small standalone change that can land before the bigger coprocess design.
 
 **TL;DR.** Bucket 3 of the Makefile (`make test`, `make demo`) needs `lgs run --profile X` to (a) accept a pre-localnet hook for `forge build`, and (b) stop the localnet on completion so test runs don't leave a sequencer process behind.
 
@@ -582,6 +614,8 @@ Pre-localnet vs pre-deploy distinction matters: `forge build` needs to happen be
 ## TR-20
 
 ### `lgs basecamp develop <module>` for verb-set symmetry — P2
+
+**Status.** ✅ Filed 2026-05-22 as [logos-co/scaffold#176](https://github.com/logos-co/scaffold/issues/176) (standalone P2). LMB-01 cross-link to be added once that upstream ask is filed.
 
 **TL;DR.** Scaffold has (or will have) `lgs basecamp build`, `run`, `install`, `launch` — missing `develop`. Should be a thin wrapper around `nix develop` of the module's flake. Composes with LMB-01 upstream (logos-module-builder providing a default dev shell for universal modules wrapping Rust cdylibs).
 
@@ -625,3 +659,12 @@ Compose order:
 - **2026-05-20** — Restructured for readability: added mental model + glossary + per-entry TL;DR/Why/Fix/Details template + TOC. Reframed TR-08 as cross-platform (not macOS-special). Retired TR-18 — Nix dev shell is the right layer for the swap-vendor-ffi problem, not scaffold. Added TR-19 (`stop_on_exit` + `pre_localnet` hook stages) to unblock Bucket 3 deletion (`make test`, `make demo`).
 - **2026-05-20** — Added TR-20 (`lgs basecamp develop <module>` for verb-set symmetry), composes with the upstream LMB-01 ask against `logos-module-builder`.
 - **2026-05-22** — TR-01 filed as [logos-co/scaffold#170](https://github.com/logos-co/scaffold/issues/170); its acceptance criteria also subsume TR-02. Companion PR [logos-co/scaffold#169](https://github.com/logos-co/scaffold/pull/169) (narrow SPel public-pin fix, commit-only pin per fryorcraken's review) is near landing. TR-03 is now the only unfiled P0.
+- **2026-05-22** — TR-03 filed cross-repo: primary [logos-co/logos-package-manager#14](https://github.com/logos-co/logos-package-manager/issues/14) (Options A/B/C + manifest-mismatch loud-error sub-ask), companion [logos-co/logos-basecamp#197](https://github.com/logos-co/logos-basecamp/issues/197) (basecamp-side escape hatch). All P0 entries now filed.
+- **2026-05-22** — U-A umbrella filed as [logos-co/scaffold#171](https://github.com/logos-co/scaffold/issues/171) (`[basecamp.profiles.<name>]` schema) bundling TR-04 (ask 2), TR-05 (ask 1), TR-08 (ask 4), TR-12 (ask 5), TR-16 (ask 6), TR-17 (ask 3). Overlap with [#163](https://github.com/logos-co/scaffold/issues/163) flagged for reviewer call.
+- **2026-05-22** — U-B umbrella filed as [logos-co/scaffold#172](https://github.com/logos-co/scaffold/issues/172) (`lgs run` pipeline extensions) bundling TR-06 (ask 2, coprocess hooks) and TR-19 (asks 1 + 3, `pre_localnet` + `stop_on_exit`). Two coprocess design shapes surfaced for maintainer pick.
+- **2026-05-22** — U-C (standalone) filed as [logos-co/scaffold#173](https://github.com/logos-co/scaffold/issues/173) (`[circuits]` schema + auto-fetch). Just TR-07; no umbrella needed.
+- **2026-05-22** — U-D umbrella filed as [logos-co/scaffold#174](https://github.com/logos-co/scaffold/issues/174) (`lgs basecamp` verb granularity) bundling TR-14 (ask 1, `lgs basecamp build`), TR-10 (ask 2, `--variant` filter), TR-15 (ask 3, `lgs basecamp run <module>`). All four P1 umbrellas now filed.
+- **2026-05-22** — TR-09 filed standalone as [logos-co/scaffold#175](https://github.com/logos-co/scaffold/issues/175) (`lgs run --watch` globs + debounce CLI flag).
+- **2026-05-22** — TR-20 filed standalone as [logos-co/scaffold#176](https://github.com/logos-co/scaffold/issues/176) (`lgs basecamp develop <module>`). LMB-01 cross-link pending separate upstream filing.
+- **2026-05-22** — TR-11 filed as doc PR [logos-co/scaffold#177](https://github.com/logos-co/scaffold/pull/177) blessing hand-authored `[modules.*]` tables for drift-detection / declarative-only adoption.
+- **2026-05-22** — TR-13 filed as doc PR [logos-co/scaffold#178](https://github.com/logos-co/scaffold/pull/178) noting that `bin-macos-app --user-dir` is orthogonal to scaffold's per-profile XDG isolation. **All 19 tracker entries now either filed (18) or retired (TR-18).** 7 GitHub issues + 2 doc PRs filed across logos-co/scaffold + logos-co/logos-package-manager + logos-co/logos-basecamp.
