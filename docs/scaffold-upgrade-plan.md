@@ -32,7 +32,8 @@ For mental model + per-entry rationale, see
 | Already done | In-flight | Pending decision |
 |---|---|---|
 | `scaffold.toml` upgraded to 0.2.0 schema + `[modules.*]` block added (swap, swap_ui, delivery_module) | [PR #26](https://github.com/logos-co/eth-lez-atomic-swaps/pull/26) — swap-vendor-ffi → Nix dev shell *(landed without approval — review needed)* | All Bucket 1 Makefile deletions |
-| `docs/scaffold-upstream-tracker.md` — 19 entries (incl. TR-20), mental model, glossary, TOC | T-019e45fb — LMB-01 investigation (logos-module-builder upstream) | `[run.profiles.{test,demo}]` partial adoption |
+| `docs/scaffold-upstream-tracker.md` — 19 entries (incl. TR-20), mental model, glossary, TOC | T-019e45fb — LMB-01 investigation (logos-module-builder upstream) | All Bucket 2 / 3 long-term deletions (wait on upstream) |
+| `[run.profiles.{test,demo}]` partial adoption done in Phase 1 of [eth-lez-atomic-swaps#27](https://github.com/logos-co/eth-lez-atomic-swaps/issues/27); validation recorded in [`docs/scaffold-phase-1-validation.md`](./scaffold-phase-1-validation.md) |  |  |
 | All 9 upstream filings done (see table above) | [logos-co/scaffold#169](https://github.com/logos-co/scaffold/pull/169) — narrow SPel public-pin fix (near landing) | All Bucket 2 / 3 long-term deletions (wait on upstream) |
 
 ## Upstream filing queue (scaffold)
@@ -108,7 +109,7 @@ conventions look like (check open issues first).
 | Item | Effort | Handoff prompt sketch |
 |---|---|---|
 | **Bucket 1 deletions:** localnet-{start,stop}, swap-module-build, swap-ui-build, swap-ui-run, basecamp-paths-* | ~30 min | "Delete Bucket 1 Makefile targets per Bucket 1 analysis in docs/scaffold-upstream-tracker.md + this plan doc. Update README to point at `lgs localnet`/`nix build`/`nix run` invocations. Verify `make` with no args still lists remaining targets. Don't push without approval." |
-| **Add `[run.profiles.{test,demo}]` partial** | ~20 min | "Add `[run.profiles.test]` and `[run.profiles.demo]` to scaffold.toml with `post_deploy = ['cargo test']` / `post_deploy = ['cargo run --features demo -- demo']`. Test `lgs run --profile test` from clean state (with `make circuits contracts` pre-run as prerequisite). Update Makefile's `test:` and `demo:` targets to chain `make circuits contracts && lgs run --profile X` instead of inlining cargo. Don't push without approval." |
+| **Add `[run.profiles.{test,demo}]` partial** | Done | Completed in Phase 1 of [eth-lez-atomic-swaps#27](https://github.com/logos-co/eth-lez-atomic-swaps/issues/27). `demo` uses `cargo run --features demo -- demo --no-localnet` so scaffold owns the LEZ run pipeline while Anvil/Ethereum deployment remain app-owned. |
 | **PR #26 review/merge** | ~10 min | Already landed; review the diff. Force-update if needed. |
 
 ### Blocked on upstream (wait for tracker entries to land)
