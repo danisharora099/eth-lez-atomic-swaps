@@ -1,3 +1,4 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use nssa_core::account::AccountId;
 use serde::{Deserialize, Serialize};
 
@@ -132,6 +133,60 @@ impl HTLCEscrow {
     }
 }
 
+/// Event discriminants emitted by the HTLC program (LP-0012 structured events).
+pub const EVENT_HTLC_LOCKED: u32 = 1;
+pub const EVENT_HTLC_CLAIMED: u32 = 2;
+pub const EVENT_HTLC_REFUNDED: u32 = 3;
+
+/// Emitted when the maker locks λ into the escrow PDA.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct HtlcLocked {
+    pub hashlock: [u8; 32],
+    pub maker_id: [u8; 32],
+    pub taker_id: [u8; 32],
+    pub amount: u128,
+    /// Absolute Unix timestamp in milliseconds used for refund validity.
+    pub timelock: u64,
+}
+
+/// Emitted when the taker claims the escrow, revealing the preimage.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct HtlcClaimed {
+    pub hashlock: [u8; 32],
+    pub preimage: [u8; 32],
+    pub amount: u128,
+}
+
+/// Emitted when the maker reclaims the escrow after the timelock.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct HtlcRefunded {
+    pub hashlock: [u8; 32],
+    pub amount: u128,
+}
+
+/// Decoded HTLC event, for host-side consumers of `getTransactionReceipt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HtlcEvent {
+    Locked(HtlcLocked),
+    Claimed(HtlcClaimed),
+    Refunded(HtlcRefunded),
+}
+
+impl HtlcEvent {
+    /// Decode an event record payload by discriminant. Returns `None` for
+    /// unknown discriminants or malformed payloads.
+    pub fn decode(discriminant: u32, payload: &[u8]) -> Option<Self> {
+        match discriminant {
+            EVENT_HTLC_LOCKED => HtlcLocked::try_from_slice(payload).ok().map(Self::Locked),
+            EVENT_HTLC_CLAIMED => HtlcClaimed::try_from_slice(payload).ok().map(Self::Claimed),
+            EVENT_HTLC_REFUNDED => HtlcRefunded::try_from_slice(payload)
+                .ok()
+                .map(Self::Refunded),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +234,47 @@ mod tests {
         let mut bytes = sample_escrow().to_bytes();
         bytes[112] = 99; // invalid state byte
         HTLCEscrow::from_bytes(&bytes);
+    }
+
+    #[test]
+    fn test_htlc_event_decode_roundtrip() {
+        let locked = HtlcLocked {
+            hashlock: [0xAA; 32],
+            maker_id: [1u8; 32],
+            taker_id: [2u8; 32],
+            amount: 1_000,
+            timelock: 1_700_000_000_000,
+        };
+        let payload = borsh::to_vec(&locked).unwrap();
+        assert_eq!(
+            HtlcEvent::decode(EVENT_HTLC_LOCKED, &payload),
+            Some(HtlcEvent::Locked(locked))
+        );
+
+        let claimed = HtlcClaimed {
+            hashlock: [0xAA; 32],
+            preimage: [0xBB; 32],
+            amount: 1_000,
+        };
+        let payload = borsh::to_vec(&claimed).unwrap();
+        assert_eq!(
+            HtlcEvent::decode(EVENT_HTLC_CLAIMED, &payload),
+            Some(HtlcEvent::Claimed(claimed))
+        );
+
+        let refunded = HtlcRefunded {
+            hashlock: [0xAA; 32],
+            amount: 1_000,
+        };
+        let payload = borsh::to_vec(&refunded).unwrap();
+        assert_eq!(
+            HtlcEvent::decode(EVENT_HTLC_REFUNDED, &payload),
+            Some(HtlcEvent::Refunded(refunded))
+        );
+
+        // Unknown discriminant or malformed payload decode to None.
+        assert_eq!(HtlcEvent::decode(99, &payload), None);
+        assert_eq!(HtlcEvent::decode(EVENT_HTLC_LOCKED, &[0u8; 3]), None);
     }
 
     #[test]

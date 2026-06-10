@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common::transaction::NSSATransaction;
 use lez_htlc_methods::{LEZ_HTLC_PROGRAM_ELF, LEZ_HTLC_PROGRAM_ID};
-use lez_htlc_program::HTLCState;
+use lez_htlc_program::{HTLCState, HtlcEvent};
 use nssa::{
     AccountId, ProgramDeploymentTransaction,
     program_deployment_transaction::Message as ProgramDeploymentMessage,
@@ -311,6 +311,150 @@ async fn test_watcher_detects_lock_and_claim() {
     assert!(matches!(event, watcher::LezHtlcEvent::Claimed { .. }));
 
     watcher_handle.abort();
+}
+
+/// LP-0012 structured events: the lock and claim transactions must produce
+/// terminal `getTransactionReceipt` responses whose decoded HTLC events carry
+/// the exact swap parameters (hashlock, parties, amount, timelock, preimage).
+#[tokio::test]
+#[ignore = "requires logos-scaffold localnet; run after make setup && make infra"]
+async fn test_receipt_events_for_lock_and_claim() {
+    let env = setup().await;
+    let maker = env.maker_client();
+    let taker = env.taker_client();
+    let (preimage, hashlock) = make_preimage_and_hashlock(0x20);
+
+    // ── Lock: receipt must contain exactly one HtlcLocked event ─────
+    let timelock_secs = 7;
+    let lock_hash = maker
+        .lock(hashlock, env.taker_id, TEST_LEZ_HTLC_AMOUNT, timelock_secs)
+        .await
+        .unwrap();
+
+    let receipt = maker
+        .wait_for_receipt(&lock_hash, CHAIN_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(
+        matches!(receipt.status, sequencer_service_rpc::TxStatus::Included),
+        "lock tx should be included, got {:?}",
+        receipt.status
+    );
+    assert!(receipt.block_id.is_some(), "included tx must have block_id");
+
+    let events = maker.decode_htlc_events(&receipt);
+    assert_eq!(events.len(), 1, "lock should emit exactly one HTLC event");
+    match &events[0] {
+        HtlcEvent::Locked(locked) => {
+            assert_eq!(locked.hashlock, hashlock);
+            assert_eq!(locked.maker_id, *env.maker_id.value());
+            assert_eq!(locked.taker_id, *env.taker_id.value());
+            assert_eq!(locked.amount, TEST_LEZ_HTLC_AMOUNT);
+            assert_eq!(locked.timelock, timelock_secs * 1000);
+        }
+        other => panic!("expected HtlcLocked, got {other:?}"),
+    }
+
+    wait_for_escrow_funded(&maker, &hashlock, TEST_LEZ_HTLC_AMOUNT).await;
+
+    // ── Claim: receipt must reveal the preimage via HtlcClaimed ─────
+    let claim_hash = taker.claim(&hashlock, &preimage).await.unwrap();
+
+    let receipt = taker
+        .wait_for_receipt(&claim_hash, CHAIN_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(matches!(
+        receipt.status,
+        sequencer_service_rpc::TxStatus::Included
+    ));
+
+    let events = taker.decode_htlc_events(&receipt);
+    assert_eq!(events.len(), 1, "claim should emit exactly one HTLC event");
+    match &events[0] {
+        HtlcEvent::Claimed(claimed) => {
+            assert_eq!(claimed.hashlock, hashlock);
+            assert_eq!(
+                claimed.preimage, preimage,
+                "HtlcClaimed must reveal the preimage"
+            );
+            assert_eq!(claimed.amount, TEST_LEZ_HTLC_AMOUNT);
+        }
+        other => panic!("expected HtlcClaimed, got {other:?}"),
+    }
+}
+
+/// LP-0012 structured events: the refund transaction must produce a receipt
+/// whose decoded HtlcRefunded event matches the escrow parameters.
+#[tokio::test]
+#[ignore = "requires logos-scaffold localnet; run after make setup && make infra"]
+async fn test_receipt_events_for_refund() {
+    let env = setup().await;
+    let maker = env.maker_client();
+    let (_, hashlock) = make_preimage_and_hashlock(0x21);
+
+    // timelock=0 → already expired; not testing timelock enforcement here.
+    maker
+        .lock(hashlock, env.taker_id, TEST_LEZ_HTLC_AMOUNT, 0)
+        .await
+        .unwrap();
+    wait_for_escrow_funded(&maker, &hashlock, TEST_LEZ_HTLC_AMOUNT).await;
+
+    let refund_hash = maker.refund(&hashlock).await.unwrap();
+
+    let receipt = maker
+        .wait_for_receipt(&refund_hash, CHAIN_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(matches!(
+        receipt.status,
+        sequencer_service_rpc::TxStatus::Included
+    ));
+
+    let events = maker.decode_htlc_events(&receipt);
+    assert_eq!(events.len(), 1, "refund should emit exactly one HTLC event");
+    match &events[0] {
+        HtlcEvent::Refunded(refunded) => {
+            assert_eq!(refunded.hashlock, hashlock);
+            assert_eq!(refunded.amount, TEST_LEZ_HTLC_AMOUNT);
+        }
+        other => panic!("expected HtlcRefunded, got {other:?}"),
+    }
+}
+
+/// LP-0012 structured events: a claim with the wrong preimage is rejected at
+/// block execution; `claim()` must surface the rejected receipt as an error.
+///
+/// Note: under `risc0_dev_mode = true` the rejected receipt carries no events
+/// (the failure-path journal is unavailable without ZK proving), so only the
+/// status/error propagation is asserted here.
+#[tokio::test]
+#[ignore = "requires logos-scaffold localnet; run after make setup && make infra"]
+async fn test_rejected_claim_surfaces_receipt_error() {
+    let env = setup().await;
+    let maker = env.maker_client();
+    let taker = env.taker_client();
+    let (_, hashlock) = make_preimage_and_hashlock(0x22);
+
+    maker
+        .lock(hashlock, env.taker_id, TEST_LEZ_HTLC_AMOUNT, 0)
+        .await
+        .unwrap();
+    wait_for_escrow_funded(&maker, &hashlock, TEST_LEZ_HTLC_AMOUNT).await;
+
+    let wrong_preimage = [0xFFu8; 32];
+    let err = taker
+        .claim(&hashlock, &wrong_preimage)
+        .await
+        .expect_err("claim with wrong preimage should be rejected");
+    assert!(
+        err.to_string().contains("rejected"),
+        "error should mention rejection, got: {err}"
+    );
+
+    // Escrow unaffected.
+    let escrow = maker.get_escrow(&hashlock).await.unwrap().unwrap();
+    assert_eq!(escrow.state, HTLCState::Locked);
 }
 
 /// Validates on-chain timelock enforcement via the LEZ runtime's timestamp

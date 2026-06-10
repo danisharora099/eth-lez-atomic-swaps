@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nssa_core = { git = "https://github.com/logos-blockchain/lssa", rev = "9fa541f" }
+# LP-0012 events evaluation: pinned to the lp0012-events-9fa541f branch, which is
+# upstream 9fa541f plus the backported LP-0012 structured event system.
+nssa_core = { git = "https://github.com/danisharora099/logos-execution-zone", branch = "lp0012-events-9fa541f" }
+lez-events = { git = "https://github.com/danisharora099/logos-execution-zone", branch = "lp0012-events-9fa541f" }
+borsh = { version = "1.5", features = ["derive"] }
 risc0-zkvm = { version = "3.0.3", features = ["std"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }

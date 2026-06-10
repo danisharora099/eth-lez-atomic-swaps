@@ -1,4 +1,8 @@
-use lez_htlc_program::{HTLCEscrow, HTLCInstruction, HTLCState};
+use lez_events::emit_event;
+use lez_htlc_program::{
+    EVENT_HTLC_CLAIMED, EVENT_HTLC_LOCKED, EVENT_HTLC_REFUNDED, HTLCEscrow, HTLCInstruction,
+    HTLCState, HtlcClaimed, HtlcLocked, HtlcRefunded,
+};
 use nssa_core::{
     account::{Account, AccountId, AccountWithMetadata},
     program::{AccountPostState, Claim, PdaSeed, ProgramInput, ProgramOutput, read_nssa_inputs},
@@ -22,14 +26,47 @@ fn main() {
             timelock,
         } => {
             let post_states = execute_lock(&pre_states, hashlock, taker_id, amount, timelock);
+            emit_event(
+                EVENT_HTLC_LOCKED,
+                &HtlcLocked {
+                    hashlock,
+                    maker_id: *pre_states[0].account_id.value(),
+                    taker_id: *taker_id.value(),
+                    amount,
+                    timelock,
+                },
+            )
+            .expect("HtlcLocked event emission failed");
             ProgramOutput::new(instruction_data, pre_states, post_states).write();
         }
         HTLCInstruction::Claim { preimage } => {
+            let escrow = HTLCEscrow::from_bytes(&pre_states[1].account.data);
             let post_states = execute_claim(&pre_states, &preimage);
+            emit_event(
+                EVENT_HTLC_CLAIMED,
+                &HtlcClaimed {
+                    hashlock: escrow.hashlock,
+                    preimage: preimage
+                        .as_slice()
+                        .try_into()
+                        .expect("preimage must be exactly 32 bytes"),
+                    amount: escrow.amount,
+                },
+            )
+            .expect("HtlcClaimed event emission failed");
             ProgramOutput::new(instruction_data, pre_states, post_states).write();
         }
         HTLCInstruction::Refund => {
+            let escrow = HTLCEscrow::from_bytes(&pre_states[1].account.data);
             let (post_states, timelock) = execute_refund(&pre_states);
+            emit_event(
+                EVENT_HTLC_REFUNDED,
+                &HtlcRefunded {
+                    hashlock: escrow.hashlock,
+                    amount: escrow.amount,
+                },
+            )
+            .expect("HtlcRefunded event emission failed");
             ProgramOutput::new(instruction_data, pre_states, post_states)
                 .with_timestamp_validity_window(timelock..)
                 .write();

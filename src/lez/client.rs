@@ -1,4 +1,4 @@
-use lez_htlc_program::{HTLCEscrow, HTLCInstruction};
+use lez_htlc_program::{HTLCEscrow, HTLCInstruction, HtlcEvent};
 use nssa::{
     AccountId, PrivateKey, PublicKey, PublicTransaction,
     program::Program,
@@ -8,9 +8,11 @@ use nssa_core::{
     account::Nonce,
     program::{PdaSeed, ProgramId},
 };
-use sequencer_service_protocol::NSSATransaction;
-use sequencer_service_rpc::{RpcClient as _, SequencerClient, SequencerClientBuilder};
-use tracing::{debug, info};
+use sequencer_service_protocol::{HashType, NSSATransaction};
+use sequencer_service_rpc::{
+    RpcClient as _, SequencerClient, SequencerClientBuilder, TxReceipt, TxStatus,
+};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::{
@@ -167,6 +169,87 @@ impl LezClient {
         Ok(Some(escrow))
     }
 
+    /// Poll `getTransactionReceipt` (LP-0012) until the transaction reaches a
+    /// terminal status (Included or Rejected), or `timeout` elapses.
+    pub async fn wait_for_receipt(
+        &self,
+        tx_hash: &str,
+        timeout: std::time::Duration,
+    ) -> Result<TxReceipt> {
+        let hash: HashType = tx_hash
+            .parse()
+            .map_err(|e| SwapError::LezTransaction(format!("invalid tx hash {tx_hash}: {e}")))?;
+
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            match self.sequencer().get_transaction_receipt(hash).await {
+                Ok(receipt) => match receipt.status {
+                    TxStatus::Included | TxStatus::Rejected => return Ok(receipt),
+                    TxStatus::Pending | TxStatus::Unknown => {
+                        debug!(tx_hash, status = ?receipt.status, "receipt not final yet");
+                    }
+                },
+                Err(e) => {
+                    warn!(tx_hash, %e, "transient error fetching receipt, will retry");
+                }
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SwapError::Timeout(format!(
+                    "LEZ transaction receipt for {tx_hash}"
+                )));
+            }
+            tokio::time::sleep(self.poll_interval).await;
+        }
+    }
+
+    /// Decode HTLC program events from a transaction receipt, filtering out
+    /// events emitted by other programs.
+    pub fn decode_htlc_events(&self, receipt: &TxReceipt) -> Vec<HtlcEvent> {
+        receipt
+            .events
+            .iter()
+            .filter(|ev| ev.program_id == self.program_id)
+            .filter_map(|ev| {
+                let decoded = HtlcEvent::decode(ev.discriminant, &ev.payload);
+                if decoded.is_none() {
+                    warn!(
+                        discriminant = ev.discriminant,
+                        sequence = ev.sequence,
+                        "unknown or malformed HTLC event in receipt"
+                    );
+                }
+                decoded
+            })
+            .collect()
+    }
+
+    /// Wait for a terminal receipt and return the decoded HTLC events.
+    /// Returns an error if the transaction was rejected.
+    pub async fn confirm_htlc_tx(
+        &self,
+        tx_hash: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<HtlcEvent>> {
+        let receipt = self.wait_for_receipt(tx_hash, timeout).await?;
+
+        if matches!(receipt.status, TxStatus::Rejected) {
+            return Err(SwapError::LezTransaction(format!(
+                "transaction {tx_hash} rejected: {}",
+                receipt.error.as_deref().unwrap_or("unknown error")
+            )));
+        }
+
+        let events = self.decode_htlc_events(&receipt);
+        info!(
+            tx_hash,
+            block_id = ?receipt.block_id,
+            ?events,
+            "LEZ transaction included with HTLC events"
+        );
+        Ok(events)
+    }
+
     /// Read the balance of an account.
     pub async fn get_balance(&self, account_id: &AccountId) -> Result<u128> {
         let resp = self
@@ -228,16 +311,18 @@ impl LezClient {
             .await?;
         debug!(tx_hash = %lock_hash, "LEZ HTLC lock submitted");
 
-        // Wait for the lock to be committed before funding.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
-        loop {
-            if self.get_escrow(&hashlock).await?.is_some() {
-                break;
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(SwapError::Timeout("LEZ lock confirmation".into()));
-            }
-            tokio::time::sleep(self.poll_interval).await;
+        // Wait for the lock to be committed before funding (LP-0012 receipt:
+        // a terminal Included status implies the escrow PDA was created).
+        let events = self
+            .confirm_htlc_tx(&lock_hash, std::time::Duration::from_secs(60))
+            .await?;
+        if !events
+            .iter()
+            .any(|ev| matches!(ev, HtlcEvent::Locked(locked) if locked.hashlock == hashlock))
+        {
+            return Err(SwapError::LezTransaction(format!(
+                "lock tx {lock_hash} included but no HtlcLocked event for hashlock found"
+            )));
         }
 
         // Step 2: Fund the escrow PDA (now owned by the HTLC program).
@@ -263,6 +348,20 @@ impl LezClient {
             .send_htlc_instruction(vec![self.account_id, pda], instruction)
             .await?;
 
+        // Confirm inclusion via LP-0012 receipt and check the HtlcClaimed
+        // event carries the revealed preimage.
+        let events = self
+            .confirm_htlc_tx(&tx_hash, std::time::Duration::from_secs(60))
+            .await?;
+        if !events
+            .iter()
+            .any(|ev| matches!(ev, HtlcEvent::Claimed(claimed) if claimed.preimage == *preimage))
+        {
+            return Err(SwapError::LezTransaction(format!(
+                "claim tx {tx_hash} included but no HtlcClaimed event with preimage found"
+            )));
+        }
+
         info!(tx_hash = %tx_hash, "LEZ HTLC claimed");
         Ok(tx_hash)
     }
@@ -274,6 +373,19 @@ impl LezClient {
         let tx_hash = self
             .send_htlc_instruction(vec![self.account_id, pda], HTLCInstruction::Refund)
             .await?;
+
+        // Confirm inclusion via LP-0012 receipt and check the HtlcRefunded event.
+        let events = self
+            .confirm_htlc_tx(&tx_hash, std::time::Duration::from_secs(60))
+            .await?;
+        if !events
+            .iter()
+            .any(|ev| matches!(ev, HtlcEvent::Refunded(refunded) if refunded.hashlock == *hashlock))
+        {
+            return Err(SwapError::LezTransaction(format!(
+                "refund tx {tx_hash} included but no HtlcRefunded event for hashlock found"
+            )));
+        }
 
         info!(tx_hash = %tx_hash, "LEZ HTLC refunded");
         Ok(tx_hash)
