@@ -8,6 +8,17 @@ This repo includes:
 - a headless local demo
 - a CLI for maker, taker, status, and refund flows
 
+> **Fork — LEZ structured events (LP-0012).** This is a fork of
+> [`logos-co/eth-lez-atomic-swaps`](https://github.com/logos-co/eth-lez-atomic-swaps)
+> that wires the swap onto the LP-0012 event system. It pins an events-enabled
+> LEZ backport, emits `HtlcLocked` / `HtlcClaimed` / `HtlcRefunded` from the HTLC
+> guest, and confirms lock/claim/refund through the new `getTransactionReceipt`
+> RPC (definitive Included/Rejected status plus the revealed preimage) instead of
+> fire-and-forget submission. Everything else — Basecamp UI, headless demo, CLI,
+> setup — follows upstream and is documented below. For what changed, why, and the
+> findings handed back to the LP-0012 review, see
+> [`docs/lez-events-evaluation.md`](docs/lez-events-evaluation.md).
+
 ## Default: Scaffold-First Local Checks
 
 Run setup once from the repo root:
