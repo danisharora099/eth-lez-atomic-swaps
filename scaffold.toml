@@ -2,10 +2,12 @@
 version = "0.2.0"
 cache_root = ".scaffold/lez-cache"
 
+# LP-0012 events evaluation: events-enabled LEZ (upstream 9fa541f plus the
+# backported LP-0012 structured event system).
 [repos.lez]
-source = "git@github.com:logos-blockchain/logos-execution-zone.git"
-path = ".scaffold/lez-cache/repos/lez/9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
-pin = "9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git@github.com:danisharora099/logos-execution-zone.git"
+path = ".scaffold/lez-cache/repos/lez/afd555cf092f371f1299b8f038465459c0da7c6b"
+pin = "afd555cf092f371f1299b8f038465459c0da7c6b"
 
 [repos.spel]
 source = "https://github.com/logos-co/spel.git"

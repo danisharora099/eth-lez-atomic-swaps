@@ -784,7 +784,7 @@ dependencies = [
 [[package]]
 name = "amm_core"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "borsh",
  "nssa_core",
@@ -1413,7 +1413,7 @@ dependencies = [
 [[package]]
 name = "ata_core"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "nssa_core",
  "risc0-zkvm",
@@ -2014,7 +2014,7 @@ dependencies = [
 [[package]]
 name = "common"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "anyhow",
  "base64",
@@ -3960,7 +3960,7 @@ dependencies = [
 [[package]]
 name = "key_protocol"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4017,6 +4017,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "lez-events"
+version = "0.1.0"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
+dependencies = [
+ "borsh",
+ "risc0-zkvm",
+ "serde",
+]
+
+[[package]]
 name = "lez_htlc_methods"
 version = "0.1.0"
 dependencies = [
@@ -4027,6 +4037,8 @@ dependencies = [
 name = "lez_htlc_program"
 version = "0.1.0"
 dependencies = [
+ "borsh",
+ "lez-events",
  "nssa_core",
  "risc0-zkvm",
  "serde",
@@ -4837,12 +4849,13 @@ dependencies = [
 [[package]]
 name = "nssa"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "anyhow",
  "borsh",
  "hex",
  "k256",
+ "lez-events",
  "log",
  "nssa_core",
  "rand 0.8.5",
@@ -4858,7 +4871,7 @@ dependencies = [
 [[package]]
 name = "nssa_core"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "base58",
  "borsh",
@@ -4866,6 +4879,7 @@ dependencies = [
  "bytesize",
  "chacha20",
  "k256",
+ "lez-events",
  "risc0-zkvm",
  "serde",
  "serde_with",
@@ -6521,7 +6535,7 @@ checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
 [[package]]
 name = "sequencer_service_protocol"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "common",
  "nssa",
@@ -6531,10 +6545,11 @@ dependencies = [
 [[package]]
 name = "sequencer_service_rpc"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "jsonrpsee",
  "sequencer_service_protocol",
+ "serde",
 ]
 
 [[package]]
@@ -7026,7 +7041,7 @@ dependencies = [
 [[package]]
 name = "testnet_initial_state"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "common",
  "key_protocol",
@@ -7161,7 +7176,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "token_core"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "borsh",
  "nssa_core",
@@ -7750,7 +7765,7 @@ dependencies = [
 [[package]]
 name = "wallet"
 version = "0.1.0"
-source = "git+https://github.com/logos-blockchain/lssa?rev=9fa541f#9fa541f3d1cfa2d4415b7c3cf4cd8954a83b78c7"
+source = "git+https://github.com/danisharora099/logos-execution-zone?branch=lp0012-events-9fa541f#afd555cf092f371f1299b8f038465459c0da7c6b"
 dependencies = [
  "amm_core",
  "anyhow",
