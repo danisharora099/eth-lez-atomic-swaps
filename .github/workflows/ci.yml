@@ -48,6 +48,12 @@ jobs:
       - name: Validate Basecamp process matcher
         run: node --test tests/basecamp-ui-process-match.test.mjs
 
+      - name: Validate maker balance-refresh wiring
+        run: node --test tests/maker-balance-refresh-contract.test.mjs
+
+      - name: Run headless swap UI unit tests
+        run: make swap-ui-unit
+
       # Installs the toolchain pinned in rust-toolchain.toml (1.93.0).
       # Must run before rust-cache so the cache key sees the right rustc.
       - name: Install pinned Rust toolchain

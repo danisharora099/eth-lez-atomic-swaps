@@ -1135,9 +1135,37 @@ void SwapUiPlugin::fetchBalancesFromLoadedEnv()
     setBalancesLoading(true);
     setStatus(QStringLiteral("Fetching balances..."));
     m_swap->fetchBalancesFromEnvAsync(m_loadedEnvPath, [this](QString result) {
-        setBalancesLoading(false);
-        applyBalancesResult(result);
+        completeBalanceRefresh(result);
     });
+}
+
+void SwapUiPlugin::requestAutomaticBalanceRefresh()
+{
+    using Decision = BalanceRefreshCoordinator::Decision;
+    const auto decision = m_balanceRefreshCoordinator.requestAutomatic(
+        !m_loadedEnvPath.isEmpty(), balancesLoading());
+    if (decision == Decision::Start) {
+        fetchBalancesFromLoadedEnv();
+    } else if (decision == Decision::Unavailable) {
+        swapUiTrace(QStringLiteral("automatic balance refresh skipped — no loaded env source"));
+    }
+}
+
+void SwapUiPlugin::completeBalanceRefresh(const QString& resultJson)
+{
+    applyBalancesResult(resultJson);
+    if (m_balanceRefreshCoordinator.finish(!m_loadedEnvPath.isEmpty())) {
+        // Keep balancesLoading true across the coalesced follow-up. Otherwise
+        // the header briefly re-enables and an older pre-sale result can look
+        // authoritative before the post-sale refresh starts.
+        setErrorMessage(QString{});
+        setStatus(QStringLiteral("Fetching balances..."));
+        m_swap->fetchBalancesFromEnvAsync(m_loadedEnvPath, [this](QString result) {
+            completeBalanceRefresh(result);
+        });
+        return;
+    }
+    setBalancesLoading(false);
 }
 
 void SwapUiPlugin::applyBalancesResult(const QString& resultJson)
@@ -1189,8 +1217,7 @@ void SwapUiPlugin::fetchBalances()
     setBalancesLoading(true);
     setStatus(QStringLiteral("Fetching balances..."));
     m_swap->fetchBalancesAsync(configJson(), [this](QString result) {
-        setBalancesLoading(false);
-        applyBalancesResult(result);
+        completeBalanceRefresh(result);
     });
 }
 
@@ -1216,7 +1243,7 @@ void SwapUiPlugin::handleMakerFinished(const QString& resultJson)
     setResultStatus(resultJson,
                     QStringLiteral("Maker swap finished"),
                     QStringLiteral("Maker swap failed"));
-    fetchBalancesFromLoadedEnv();
+    requestAutomaticBalanceRefresh();
 }
 
 void SwapUiPlugin::handleTakerFinished(const QString& resultJson)
@@ -1240,7 +1267,7 @@ void SwapUiPlugin::handleTakerFinished(const QString& resultJson)
     setResultStatus(resultJson,
                     QStringLiteral("Taker swap finished"),
                     QStringLiteral("Taker swap failed"));
-    fetchBalancesFromLoadedEnv();
+    requestAutomaticBalanceRefresh();
 }
 
 void SwapUiPlugin::handleAutoAcceptFinished(const QString& resultJson)
@@ -1264,7 +1291,7 @@ void SwapUiPlugin::handleAutoAcceptFinished(const QString& resultJson)
     setResultStatus(resultJson,
                     QStringLiteral("Auto-accept stopped"),
                     QStringLiteral("Auto-accept failed"));
-    fetchBalancesFromLoadedEnv();
+    requestAutomaticBalanceRefresh();
 }
 
 void SwapUiPlugin::handleJobStartResult(const QString& role, const QString& resultJson)
@@ -1767,6 +1794,7 @@ void SwapUiPlugin::handleProgressEvent(const QString& eventName, const QJsonObje
         }
         clearMakerProgress();
         setMakerCurrentStep(QStringLiteral("WaitingForEthLock"));
+        requestAutomaticBalanceRefresh();
     } else if (step == QStringLiteral("AutoAcceptSwapFailed")) {
         setAutoAcceptFailed(autoAcceptFailed() + 1);
         QJsonObject entry;
