@@ -45,6 +45,9 @@ jobs:
       - name: Validate public-feedback evidence boundary
         run: node tests/check-feedback-evidence.mjs
 
+      - name: Validate Basecamp process matcher
+        run: node --test tests/basecamp-ui-process-match.test.mjs
+
       # Installs the toolchain pinned in rust-toolchain.toml (1.93.0).
       # Must run before rust-cache so the cache key sees the right rustc.
       - name: Install pinned Rust toolchain
@@ -121,11 +124,11 @@ jobs:
       - name: Install modules and run Basecamp-native UI smoke test
         run: make basecamp-ui-smoke
 
-      - name: Upload Basecamp failure diagnostics
-        if: failure()
+      - name: Upload Basecamp runtime diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: basecamp-ui-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/basecamp-ui-smoke/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
